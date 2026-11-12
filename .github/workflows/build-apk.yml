@@ -1,0 +1,133 @@
+name: Setup and Build APK
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "project.godot"
+      - "export_presets.cfg"
+      - "scripts/**"
+      - "scenes/**"
+      - "assets/**"
+
+env:
+  GODOT_VERSION: "4.3"
+
+jobs:
+  extract:
+    name: Unzip project (if a zip is in the repo)
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Unzip and commit
+        shell: bash
+        run: |
+          ZIP="$(ls ./*.zip 2>/dev/null | head -n 1 || true)"
+          if [ -z "$ZIP" ]; then
+            echo "No zip file in the repo root - nothing to extract."
+            exit 0
+          fi
+          echo "Extracting $ZIP"
+          rm -rf /tmp/x && mkdir /tmp/x
+          unzip -q "$ZIP" -d /tmp/x
+          SRC=/tmp/x
+          if [ "$(ls -A /tmp/x | wc -l)" = "1" ] && [ -d "/tmp/x/$(ls -A /tmp/x)" ]; then
+            SRC="/tmp/x/$(ls -A /tmp/x)"
+          fi
+          rm -rf "$SRC/.github"
+          cp -a "$SRC"/. .
+          rm -f "$ZIP"
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add -A
+          git commit -m "Add ALONE MAN project files" || echo "Nothing to commit"
+          git push
+
+  build:
+    name: Export debug APK
+    needs: extract
+    runs-on: ubuntu-22.04
+    container:
+      image: barichello/godot-ci:4.3
+    steps:
+      - name: Checkout latest
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+
+      - name: Check project files
+        shell: bash
+        run: |
+          ls -la
+          test -f project.godot || (echo "ERROR: project.godot not found. Upload the zip to the repo root and run again."; exit 1)
+
+      - name: Install export templates
+        shell: bash
+        run: |
+          set -e
+          mkdir -v -p ~/.local/share/godot/export_templates
+          if [ -d "/root/.local/share/godot/templates/${GODOT_VERSION}.stable" ]; then
+            mv /root/.local/share/godot/templates/${GODOT_VERSION}.stable ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable
+          fi
+          ls -la ~/.local/share/godot/export_templates/
+
+      - name: Configure Android SDK, JDK and debug keystore
+        shell: bash
+        run: |
+          set -e
+          SDK=""
+          for c in "$ANDROID_HOME" "$ANDROID_SDK_ROOT" /usr/lib/android-sdk /opt/android-sdk /usr/local/lib/android/sdk; do
+            if [ -n "$c" ] && [ -d "$c/build-tools" ]; then SDK="$c"; break; fi
+          done
+          if [ -z "$SDK" ]; then
+            echo "ERROR: Android SDK with build-tools not found in this image."; exit 1
+          fi
+
+          if [ -n "$JAVA_HOME" ] && [ -x "$JAVA_HOME/bin/keytool" ]; then
+            JDK="$JAVA_HOME"
+          else
+            JDK="$(dirname "$(dirname "$(readlink -f "$(which javac)")")")"
+          fi
+          echo "SDK=$SDK"
+          echo "JDK=$JDK"
+
+          keytool -keyalg RSA -genkeypair -alias androiddebugkey -keypass android \
+            -keystore /root/debug.keystore -storepass android \
+            -dname "CN=Android Debug,O=Android,C=US" -validity 9999 -deststoretype pkcs12
+
+          mkdir -p ~/.config/godot
+          for f in editor_settings-4.tres editor_settings-4.3.tres; do
+            cat > ~/.config/godot/$f <<EOF
+          [gd_resource type="EditorSettings" format=3]
+
+          [resource]
+          export/android/android_sdk_path = "$SDK"
+          export/android/java_sdk_path = "$JDK"
+          export/android/debug_keystore = "/root/debug.keystore"
+          export/android/debug_keystore_user = "androiddebugkey"
+          export/android/debug_keystore_pass = "android"
+          EOF
+          done
+
+      - name: Import project resources
+        shell: bash
+        run: |
+          godot --headless --verbose --import || true
+
+      - name: Export APK
+        shell: bash
+        run: |
+          mkdir -p build/android
+          godot --headless --verbose --export-debug "Android" build/android/AloneMan-debug.apk
+          ls -la build/android
+          test -s build/android/AloneMan-debug.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: AloneMan-debug-apk
+          path: build/android/AloneMan-debug.apk
