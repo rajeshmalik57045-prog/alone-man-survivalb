@@ -1,13 +1,30 @@
 extends CharacterBody3D
 ## Player controller (Phase 1): camera-relative movement, sprint, jump, crouch, USE action.
 ##
-## VISUAL: if res://assets/characters/survivor.glb exists it is used (with an AnimationPlayer
-## if the file has one). Otherwise a clearly-marked PLACEHOLDER capsule is shown.
-## The placeholder is NOT the final character - see assets/characters/README.md.
+## VISUAL: the first model found in MODEL_CANDIDATES is used (the Mixamo "Idle.fbx" with skin).
+## Animations are loaded from the other FBX files listed in ANIM_FILES (Mixamo "Without Skin").
+## If no model is found, a clearly-marked PLACEHOLDER capsule is shown.
 
 signal notified(text: String)
 
-const MODEL_PATH := "res://assets/characters/survivor.glb"
+const MODEL_CANDIDATES := [
+	"res://assets/characters/survivor.glb",
+	"res://assets/characters/survivor.fbx",
+	"res://assets/characters/Idle.fbx",
+]
+const ANIM_DIR := "res://assets/characters/"
+## animation name -> file that contains it. "idle" comes from the model file itself.
+const ANIM_FILES := {
+	"walk": "Walking.fbx",
+	"run": "Running.fbx",
+	"jump": "Jump.fbx",
+	"crouch_idle": "Crouch Idle.fbx",
+	"crouch_walk": "Crouch Walk Back.fbx",
+}
+const LOOPING := ["idle", "walk", "run", "crouch_idle", "crouch_walk"]
+const ANIM_LIB := "game"
+const FBX_FACING_YAW := PI  # Mixamo models face +Z, the game moves toward -Z
+
 const GRAVITY := 18.0
 const STAND_HEIGHT := 1.8
 const CROUCH_HEIGHT := 1.2
@@ -139,23 +156,34 @@ func _physics_process(delta: float) -> void:
 		_visual.rotation.y = lerp_angle(_visual.rotation.y, target_yaw, 1.0 - exp(-12.0 * delta))
 
 	move_and_slide()
-	_update_animation(moving, sprinting)
+	_update_animation()
 
 
-func _update_animation(moving: bool, sprinting: bool) -> void:
+func _update_animation() -> void:
 	if _anim == null:
 		return
-	var anim_name := "idle"
+	var hspeed := Vector2(velocity.x, velocity.z).length()
+	var key := "idle"
+	var anim_speed := 1.0
 	if not is_on_floor():
-		anim_name = "jump"
-	elif sprinting:
-		anim_name = "sprint"
-	elif moving:
-		anim_name = "crouch_walk" if crouching else "walk"
+		key = "jump"
 	elif crouching:
-		anim_name = "crouch_idle"
-	if _anim.has_animation(anim_name) and _anim.current_animation != anim_name:
-		_anim.play(anim_name, 0.2)
+		key = "crouch_walk" if hspeed > 0.3 else "crouch_idle"
+	elif hspeed > 3.2:
+		key = "run"
+		anim_speed = clampf(hspeed / 4.6, 0.8, 1.6)
+	elif hspeed > 0.3:
+		key = "walk"
+		anim_speed = clampf(hspeed / 1.4, 0.6, 2.0)
+
+	var full := "%s/%s" % [ANIM_LIB, key]
+	if not _anim.has_animation(full):
+		full = "%s/idle" % ANIM_LIB
+		if not _anim.has_animation(full):
+			return
+	_anim.speed_scale = anim_speed
+	if _anim.current_animation != full:
+		_anim.play(full, 0.2)
 
 
 # ---------- visuals ----------
@@ -164,15 +192,24 @@ func _build_visual() -> Node3D:
 	var root := Node3D.new()
 	root.name = "Visual"
 
-	if ResourceLoader.exists(MODEL_PATH):
-		var scene := load(MODEL_PATH) as PackedScene
-		if scene:
-			root.add_child(scene.instantiate())
-			var found := root.find_children("*", "AnimationPlayer", true, false)
-			if not found.is_empty():
-				_anim = found[0] as AnimationPlayer
-			_is_placeholder = false
-			return root
+	for path in MODEL_CANDIDATES:
+		if not ResourceLoader.exists(path):
+			continue
+		var scene := load(path) as PackedScene
+		if scene == null:
+			continue
+		var model := scene.instantiate() as Node3D
+		if model == null:
+			continue
+		if str(path).ends_with(".fbx"):
+			model.rotation.y = FBX_FACING_YAW
+		root.add_child(model)
+		var found := model.find_children("*", "AnimationPlayer", true, false)
+		if not found.is_empty():
+			_anim = found[0] as AnimationPlayer
+			_setup_animations()
+		_is_placeholder = false
+		return root
 
 	# PLACEHOLDER (orange capsule with a "nose" box so the facing direction is visible).
 	var body := MeshInstance3D.new()
@@ -197,3 +234,56 @@ func _build_visual() -> Node3D:
 	root.add_child(nose)
 
 	return root
+
+
+func _setup_animations() -> void:
+	var lib := AnimationLibrary.new()
+
+	var own := _first_animation(_anim)
+	if own:
+		lib.add_animation("idle", _prepare_animation(own, "idle"))
+
+	for key in ANIM_FILES:
+		var path: String = ANIM_DIR + String(ANIM_FILES[key])
+		if not ResourceLoader.exists(path):
+			continue
+		var packed := load(path) as PackedScene
+		if packed == null:
+			continue
+		var inst := packed.instantiate()
+		var players := inst.find_children("*", "AnimationPlayer", true, false)
+		if not players.is_empty():
+			var src := _first_animation(players[0] as AnimationPlayer)
+			if src:
+				lib.add_animation(str(key), _prepare_animation(src, str(key)))
+		inst.free()
+
+	_anim.add_animation_library(ANIM_LIB, lib)
+
+
+func _first_animation(player: AnimationPlayer) -> Animation:
+	for anim_name in player.get_animation_list():
+		if str(anim_name) == "RESET":
+			continue
+		return player.get_animation(anim_name)
+	return null
+
+
+func _prepare_animation(src: Animation, key: String) -> Animation:
+	var anim := src.duplicate() as Animation
+	anim.loop_mode = Animation.LOOP_LINEAR if LOOPING.has(key) else Animation.LOOP_NONE
+
+	# Keep the hip bone from travelling forward/sideways, so the animation plays "in place".
+	for t in anim.get_track_count():
+		if anim.track_get_type(t) != Animation.TYPE_POSITION_3D:
+			continue
+		if not str(anim.track_get_path(t)).ends_with("Hips"):
+			continue
+		var count := anim.track_get_key_count(t)
+		if count == 0:
+			continue
+		var first: Vector3 = anim.track_get_key_value(t, 0)
+		for k in count:
+			var v: Vector3 = anim.track_get_key_value(t, k)
+			anim.track_set_key_value(t, k, Vector3(first.x, v.y, first.z))
+	return anim
