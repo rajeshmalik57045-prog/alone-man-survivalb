@@ -1,0 +1,16 @@
+# Godot
+.godot/
+*.translation
+export_credentials.cfg
+
+# Builds
+build/
+*.apk
+*.aab
+
+# Android signing
+*.keystore
+*.jks
+
+# Android build template (large, regenerated)
+android/

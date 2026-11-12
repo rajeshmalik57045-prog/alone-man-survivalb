@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <rect width="128" height="128" rx="24" fill="#16241a"/>
+  <path d="M20 96 L52 44 L72 74 L88 56 L108 96 Z" fill="#2f5a3a"/>
+  <circle cx="92" cy="30" r="9" fill="#e8c66a"/>
+  <text x="64" y="118" font-family="sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#ffffff">ALONE MAN</text>
+</svg>
