@@ -69,11 +69,25 @@ jobs:
         shell: bash
         run: |
           set -e
-          mkdir -v -p ~/.local/share/godot/export_templates
-          if [ -d "/root/.local/share/godot/templates/${GODOT_VERSION}.stable" ]; then
-            mv /root/.local/share/godot/templates/${GODOT_VERSION}.stable ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable
+          DEST="$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          mkdir -p "$(dirname "$DEST")"
+          for src in "/root/.local/share/godot/export_templates/${GODOT_VERSION}.stable" "/root/.local/share/godot/templates/${GODOT_VERSION}.stable"; do
+            if [ -d "$src" ] && [ "$src" != "$DEST" ]; then
+              echo "Found templates at $src"
+              cp -r "$src" "$DEST"
+              break
+            fi
+          done
+          if [ ! -f "$DEST/android_debug.apk" ]; then
+            FOUND="$(find / -name android_debug.apk 2>/dev/null | head -n 1 || true)"
+            if [ -n "$FOUND" ]; then
+              echo "Found templates via search at $FOUND"
+              mkdir -p "$DEST"
+              cp -r "$(dirname "$FOUND")"/. "$DEST"/
+            fi
           fi
-          ls -la ~/.local/share/godot/export_templates/
+          ls -la "$DEST"
+          test -f "$DEST/android_debug.apk"
 
       - name: Configure Android SDK, JDK and debug keystore
         shell: bash
