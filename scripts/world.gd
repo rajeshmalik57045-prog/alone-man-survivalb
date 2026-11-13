@@ -33,6 +33,18 @@ var _heights := PackedFloat32Array()
 var _half := SIZE * 0.5
 var _step := SIZE / float(RES)
 
+# Gatherable resources: index i matches MultiMesh instance i.
+var _tree_points := PackedVector3Array()
+var _tree_hp := PackedInt32Array()
+var _tree_reach := PackedFloat32Array()
+var _tree_shapes: Array[CollisionShape3D] = []
+var _tree_mms: Array[MultiMesh] = []
+var _rock_points := PackedVector3Array()
+var _rock_hp := PackedInt32Array()
+var _rock_reach := PackedFloat32Array()
+var _rock_shapes: Array[CollisionShape3D] = []
+var _rock_mms: Array[MultiMesh] = []
+
 
 func _init() -> void:
 	_noise.seed = 1337
@@ -94,7 +106,7 @@ func _build_environment() -> void:
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env.ambient_light_energy = 0.9
+	env.ambient_light_energy = 0.6
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	env.fog_enabled = true
 	env.fog_light_color = Color(0.70, 0.78, 0.86)
@@ -107,6 +119,7 @@ func _build_environment() -> void:
 	var sun := DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-48.0, -35.0, 0.0)
 	sun.light_color = Color(1.0, 0.96, 0.88)
+	sun.light_energy = 0.9
 	sun.shadow_enabled = true
 	sun.directional_shadow_max_distance = 70.0
 	add_child(sun)
@@ -307,9 +320,10 @@ func _collect_meshes(paths: Array, model_scale: float) -> Array:
 	return out
 
 
-func _spawn_instances(parts: Array, placements: Array[Transform3D], node_name: String) -> void:
+func _spawn_instances(parts: Array, placements: Array[Transform3D], node_name: String) -> Array[MultiMesh]:
+	var made: Array[MultiMesh] = []
 	if placements.is_empty():
-		return
+		return made
 	for part in parts:
 		var local: Transform3D = part["xform"]
 		var mm := MultiMesh.new()
@@ -322,6 +336,8 @@ func _spawn_instances(parts: Array, placements: Array[Transform3D], node_name: S
 		inst.name = node_name
 		inst.multimesh = mm
 		add_child(inst)
+		made.append(mm)
+	return made
 
 
 # ---------- trees ----------
@@ -348,11 +364,15 @@ func _build_trees(rng: RandomNumberGenerator) -> void:
 		shape.shape = cyl
 		shape.position = p + Vector3(0.0, 1.5 * s, 0.0)
 		colliders.add_child(shape)
+		_tree_points.append(p)
+		_tree_hp.append(5)
+		_tree_reach.append(0.4 * s + 1.7)
+		_tree_shapes.append(shape)
 
 	var parts := _collect_meshes(TREE_MODELS, TREE_MODEL_SCALE)
 	if parts.is_empty():
 		parts = _standin_tree_parts()
-	_spawn_instances(parts, placements, "Trees")
+	_tree_mms = _spawn_instances(parts, placements, "Trees")
 
 
 func _standin_tree_parts() -> Array:
@@ -409,11 +429,15 @@ func _build_rocks(rng: RandomNumberGenerator) -> void:
 		shape.shape = sphere
 		shape.position = p + Vector3(0.0, 0.3 * sy, 0.0)
 		colliders.add_child(shape)
+		_rock_points.append(p)
+		_rock_hp.append(4)
+		_rock_reach.append(0.8 * minf(sx, sz) + 1.7)
+		_rock_shapes.append(shape)
 
 	var parts := _collect_meshes(ROCK_MODELS, ROCK_MODEL_SCALE)
 	if parts.is_empty():
 		parts = _standin_rock_parts()
-	_spawn_instances(parts, placements, "Rocks")
+	_rock_mms = _spawn_instances(parts, placements, "Rocks")
 
 
 func _standin_rock_parts() -> Array:
@@ -432,21 +456,31 @@ func _standin_rock_parts() -> Array:
 # ---------- pickups (USE button collects these) ----------
 
 func _build_pickups(rng: RandomNumberGenerator) -> void:
-	for i in 10:
+	for i in 8:
 		var p := _land_point_near_spawn(rng, 6.0, 30.0)
 		if p.is_finite():
-			_add_pickup(p, "Wood", Color(0.45, 0.28, 0.12))
-	for i in 8:
+			_add_pickup(p, "wood", 2, Color(0.45, 0.28, 0.12))
+	for i in 6:
 		var p := _land_point_near_spawn(rng, 8.0, 35.0)
 		if p.is_finite():
-			_add_pickup(p, "Stone", Color(0.5, 0.5, 0.55))
+			_add_pickup(p, "stone", 2, Color(0.5, 0.5, 0.55))
+	for i in 12:
+		var p := _land_point_near_spawn(rng, 8.0, 40.0)
+		if p.is_finite():
+			_add_pickup(p, "berries", 3, Color(0.75, 0.10, 0.20))
+	# TEMPORARY test items so cooking at a campfire can be tried before hunting exists (Phase 4).
+	for i in 3:
+		var p := _land_point_near_spawn(rng, 8.0, 30.0)
+		if p.is_finite():
+			_add_pickup(p, "raw_meat", 1, Color(0.80, 0.35, 0.35))
 
 
-func _add_pickup(pos: Vector3, item: String, color: Color) -> void:
+func _add_pickup(pos: Vector3, item_id: String, amount: int, color: Color) -> void:
 	var node := Node3D.new()
 	node.position = pos
 	node.add_to_group("interactable")
-	node.set_meta("item", item)
+	node.set_meta("item_id", item_id)
+	node.set_meta("amount", amount)
 
 	var mesh_inst := MeshInstance3D.new()
 	var mesh := BoxMesh.new()
@@ -459,3 +493,210 @@ func _add_pickup(pos: Vector3, item: String, color: Color) -> void:
 	node.add_child(mesh_inst)
 
 	add_child(node)
+
+
+# ---------- gathering API (used by player.gd) ----------
+
+func nearest_tree(pos: Vector3) -> int:
+	return _nearest_resource(pos, _tree_points, _tree_hp, _tree_reach)
+
+
+func nearest_rock(pos: Vector3) -> int:
+	return _nearest_resource(pos, _rock_points, _rock_hp, _rock_reach)
+
+
+func _nearest_resource(pos: Vector3, points: PackedVector3Array, hp: PackedInt32Array, reach: PackedFloat32Array) -> int:
+	var best := -1
+	var best_gap := 0.0
+	for i in points.size():
+		if hp[i] <= 0:
+			continue
+		var d := Vector2(pos.x - points[i].x, pos.z - points[i].z).length()
+		var gap := d - reach[i]
+		if gap <= 0.0 and (best == -1 or gap < best_gap):
+			best = i
+			best_gap = gap
+	return best
+
+
+## Returns true when the tree has just been felled.
+func hit_tree(i: int, damage: int) -> bool:
+	_tree_hp[i] -= damage
+	if _tree_hp[i] > 0:
+		return false
+	_hide_instance(_tree_mms, i, _tree_points[i])
+	_tree_shapes[i].set_deferred("disabled", true)
+	return true
+
+
+## Returns true when the rock has just been used up.
+func hit_rock(i: int, damage: int) -> bool:
+	_rock_hp[i] -= damage
+	if _rock_hp[i] > 0:
+		return false
+	_hide_instance(_rock_mms, i, _rock_points[i])
+	_rock_shapes[i].set_deferred("disabled", true)
+	return true
+
+
+func _hide_instance(mms: Array[MultiMesh], i: int, p: Vector3) -> void:
+	var gone := Transform3D(Basis().scaled(Vector3(0.001, 0.001, 0.001)), p)
+	for mm in mms:
+		mm.set_instance_transform(i, gone)
+
+
+func is_near_water(pos: Vector3) -> bool:
+	if height_at(pos.x, pos.z) < WATER_LEVEL + 0.1:
+		return true
+	for k in 8:
+		var a := TAU * float(k) / 8.0
+		if height_at(pos.x + cos(a) * 2.5, pos.z + sin(a) * 2.5) < WATER_LEVEL:
+			return true
+	return false
+
+
+func nearest_campfire(pos: Vector3, max_dist: float) -> Node3D:
+	var best: Node3D = null
+	var best_d := max_dist
+	for n in get_tree().get_nodes_in_group("campfire"):
+		var node := n as Node3D
+		if node == null:
+			continue
+		var d := pos.distance_to(node.global_position)
+		if d < best_d:
+			best_d = d
+			best = node
+	return best
+
+
+# ---------- building (campfire, shelter) ----------
+
+func place_structure(kind: String, pos: Vector3, yaw: float) -> bool:
+	if pos.y < WATER_LEVEL + 0.4:
+		return false
+	var steep := maxf(absf(height_at(pos.x + 1.5, pos.z) - pos.y), absf(height_at(pos.x, pos.z + 1.5) - pos.y))
+	if steep > 1.2:
+		return false
+	if kind == "campfire":
+		_make_campfire(pos)
+		return true
+	if kind == "shelter":
+		_make_shelter(pos, yaw)
+		return true
+	return false
+
+
+func _make_campfire(pos: Vector3) -> void:
+	var fire := Node3D.new()
+	fire.name = "Campfire"
+	fire.position = pos
+	fire.add_to_group("campfire")
+
+	var stone_mat := StandardMaterial3D.new()
+	stone_mat.albedo_color = Color(0.45, 0.45, 0.48)
+	stone_mat.roughness = 1.0
+	for k in 7:
+		var a := TAU * float(k) / 7.0
+		var sm := SphereMesh.new()
+		sm.radius = 0.16
+		sm.height = 0.26
+		sm.radial_segments = 6
+		sm.rings = 3
+		sm.material = stone_mat
+		var st := MeshInstance3D.new()
+		st.mesh = sm
+		st.position = Vector3(cos(a) * 0.55, 0.1, sin(a) * 0.55)
+		fire.add_child(st)
+
+	var log_mat := StandardMaterial3D.new()
+	log_mat.albedo_color = Color(0.30, 0.19, 0.10)
+	log_mat.roughness = 1.0
+	for k in 3:
+		var cm := CylinderMesh.new()
+		cm.top_radius = 0.07
+		cm.bottom_radius = 0.07
+		cm.height = 0.8
+		cm.radial_segments = 6
+		cm.material = log_mat
+		var lg := MeshInstance3D.new()
+		lg.mesh = cm
+		lg.position = Vector3(0.0, 0.14, 0.0)
+		lg.rotation = Vector3(deg_to_rad(80.0), TAU * float(k) / 3.0, 0.0)
+		fire.add_child(lg)
+
+	var light := OmniLight3D.new()
+	light.light_color = Color(1.0, 0.62, 0.25)
+	light.light_energy = 1.8
+	light.omni_range = 12.0
+	light.position = Vector3(0.0, 0.9, 0.0)
+	fire.add_child(light)
+
+	var flame_mesh := SphereMesh.new()
+	flame_mesh.radius = 0.09
+	flame_mesh.height = 0.18
+	flame_mesh.radial_segments = 6
+	flame_mesh.rings = 3
+	var flame_mat := StandardMaterial3D.new()
+	flame_mat.albedo_color = Color(1.0, 0.55, 0.10)
+	flame_mat.emission_enabled = true
+	flame_mat.emission = Color(1.0, 0.45, 0.05)
+	flame_mat.emission_energy_multiplier = 2.0
+	flame_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	flame_mesh.material = flame_mat
+
+	var flame := CPUParticles3D.new()
+	flame.mesh = flame_mesh
+	flame.amount = 20
+	flame.lifetime = 0.8
+	flame.direction = Vector3.UP
+	flame.spread = 14.0
+	flame.initial_velocity_min = 0.7
+	flame.initial_velocity_max = 1.4
+	flame.gravity = Vector3.ZERO
+	flame.scale_amount_min = 0.6
+	flame.scale_amount_max = 1.3
+	flame.position = Vector3(0.0, 0.25, 0.0)
+	fire.add_child(flame)
+
+	add_child(fire)
+
+
+func _make_shelter(pos: Vector3, yaw: float) -> void:
+	var root := StaticBody3D.new()
+	root.name = "Shelter"
+	root.collision_layer = 1
+	root.position = pos
+	root.rotation.y = yaw
+
+	var wood := StandardMaterial3D.new()
+	wood.albedo_color = Color(0.40, 0.27, 0.15)
+	wood.roughness = 1.0
+	var thatch := StandardMaterial3D.new()
+	thatch.albedo_color = Color(0.22, 0.34, 0.16)
+	thatch.roughness = 1.0
+
+	# four posts, a roof, and a back wall (the open side faces the player who built it)
+	for px in [-1.5, 1.5]:
+		for pz in [-1.4, 1.4]:
+			_add_box_part(root, Vector3(0.2, 2.8, 0.2), Vector3(px, 0.8, pz), wood)
+	_add_box_part(root, Vector3(3.6, 0.15, 3.4), Vector3(0.0, 2.25, 0.0), thatch)
+	_add_box_part(root, Vector3(3.2, 2.0, 0.12), Vector3(0.0, 0.6, -1.4), wood)
+
+	add_child(root)
+
+
+func _add_box_part(parent: Node3D, size: Vector3, pos: Vector3, mat: Material) -> void:
+	var bm := BoxMesh.new()
+	bm.size = size
+	bm.material = mat
+	var mi := MeshInstance3D.new()
+	mi.mesh = bm
+	mi.position = pos
+	parent.add_child(mi)
+
+	var bs := BoxShape3D.new()
+	bs.size = size
+	var cs := CollisionShape3D.new()
+	cs.shape = bs
+	cs.position = pos
+	parent.add_child(cs)

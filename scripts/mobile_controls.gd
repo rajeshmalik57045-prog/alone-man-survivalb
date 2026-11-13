@@ -171,6 +171,18 @@ func _press_button(b: Dictionary) -> void:
 			menu_pressed.emit(b["id"])
 
 
+## Forget all held fingers (called when a menu opens, so nothing stays "stuck").
+func reset_touches() -> void:
+	_joy_finger = -1
+	_look_finger = -1
+	_joy_vec = Vector2.ZERO
+	_sprinting = false
+	for b in _buttons:
+		b["finger"] = -1
+	move_changed.emit(Vector2.ZERO, false)
+	queue_redraw()
+
+
 # ---------- drawing ----------
 
 func _draw() -> void:

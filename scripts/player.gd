@@ -39,6 +39,8 @@ const USE_RANGE := 2.6
 @export var acceleration := 28.0
 
 var cam_rig  # camera rig node; provides `yaw`
+var world  # the world node (resources, water, building)
+var state  # GameState node (inventory, crafting)
 
 var health := 100.0
 var hunger := 100.0
@@ -103,24 +105,93 @@ func set_crouch(on: bool) -> void:
 		_visual.scale.y = h / STAND_HEIGHT
 
 
+## Direction the character is facing (used when placing a campfire or shelter).
+func get_forward() -> Vector3:
+	var yaw := 0.0
+	if _visual:
+		yaw = _visual.rotation.y
+	return Vector3(-sin(yaw), 0.0, -cos(yaw))
+
+
+## The USE button: does the most useful thing within reach.
 func use_action() -> void:
+	if state == null or world == null:
+		notified.emit("Not ready yet")
+		return
+	var pos := global_position
+
+	# 1) loose items lying on the ground
 	var best: Node3D = null
 	var best_dist := USE_RANGE
 	for n in get_tree().get_nodes_in_group("interactable"):
 		var node := n as Node3D
 		if node == null:
 			continue
-		var d := global_position.distance_to(node.global_position)
+		var d := pos.distance_to(node.global_position)
 		if d < best_dist:
 			best_dist = d
 			best = node
 	if best:
-		var item := str(best.get_meta("item", "Item"))
-		best.remove_from_group("interactable")
-		best.queue_free()
-		notified.emit("%s collected" % item)
-	else:
-		notified.emit("Nothing to use here")
+		var item_id := str(best.get_meta("item_id", "wood"))
+		var amount := int(best.get_meta("amount", 1))
+		if state.add(item_id, amount):
+			best.remove_from_group("interactable")
+			best.queue_free()
+			notified.emit("%s x%d collected" % [state.item_name(item_id), amount])
+		else:
+			notified.emit("Too heavy to carry")
+		return
+
+	# 2) campfire: cook raw meat
+	var fire = world.nearest_campfire(pos, 3.2)
+	if fire != null:
+		if state.count("raw_meat") > 0:
+			state.remove("raw_meat", 1)
+			state.add("cooked_meat", 1)
+			notified.emit("Meat cooked")
+		else:
+			notified.emit("Campfire - bring raw meat to cook it")
+		return
+
+	# 3) tree: chop wood (a Stone Axe is faster)
+	var tree_index: int = world.nearest_tree(pos)
+	if tree_index >= 0:
+		var per_hit := 2 if state.count("stone_axe") > 0 else 1
+		if not state.can_add("wood", per_hit):
+			notified.emit("Too heavy to carry")
+			return
+		state.add("wood", per_hit)
+		var felled: bool = world.hit_tree(tree_index, per_hit)
+		if felled:
+			notified.emit("Wood +%d  (tree felled)" % per_hit)
+		else:
+			notified.emit("Wood +%d" % per_hit)
+		return
+
+	# 4) rock: mine stone
+	var rock_index: int = world.nearest_rock(pos)
+	if rock_index >= 0:
+		if not state.can_add("stone", 1):
+			notified.emit("Too heavy to carry")
+			return
+		state.add("stone", 1)
+		var used_up: bool = world.hit_rock(rock_index, 1)
+		if used_up:
+			notified.emit("Stone +1  (rock used up)")
+		else:
+			notified.emit("Stone +1")
+		return
+
+	# 5) water: drink
+	if world.is_near_water(pos):
+		if thirst >= 99.0:
+			notified.emit("You are not thirsty")
+		else:
+			thirst = minf(100.0, thirst + 30.0)
+			notified.emit("You drink water")
+		return
+
+	notified.emit("Nothing to use here")
 
 
 # ---------- physics ----------
