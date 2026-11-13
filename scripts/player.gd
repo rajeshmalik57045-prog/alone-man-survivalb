@@ -25,6 +25,8 @@ const LOOPING := ["idle", "walk", "run", "crouch_idle", "crouch_walk"]
 const ANIM_LIB := "game"
 const FBX_FACING_YAW := PI  # Mixamo models face +Z, the game moves toward -Z
 
+const SHOW_DEBUG := true  # yellow debug text (top-left); set to false when animations work
+
 const GRAVITY := 18.0
 const STAND_HEIGHT := 1.8
 const CROUCH_HEIGHT := 1.2
@@ -53,6 +55,8 @@ var _is_placeholder := true
 var _shape: CollisionShape3D
 var _capsule: CapsuleShape3D
 var _anim: AnimationPlayer
+var _debug_label: Label
+var _debug_info := "model: placeholder (no Idle.fbx found)"
 
 
 func _ready() -> void:
@@ -70,6 +74,10 @@ func _ready() -> void:
 
 	_visual = _build_visual()
 	add_child(_visual)
+	if _anim:
+		_setup_animations()
+	if SHOW_DEBUG:
+		_make_debug_label()
 
 
 # ---------- input from controls ----------
@@ -160,6 +168,11 @@ func _physics_process(delta: float) -> void:
 
 
 func _update_animation() -> void:
+	if _debug_label:
+		var playing := ""
+		if _anim:
+			playing = "\nplaying: %s" % str(_anim.current_animation)
+		_debug_label.text = _debug_info + playing
 	if _anim == null:
 		return
 	var hspeed := Vector2(velocity.x, velocity.z).length()
@@ -207,7 +220,8 @@ func _build_visual() -> Node3D:
 		var found := model.find_children("*", "AnimationPlayer", true, false)
 		if not found.is_empty():
 			_anim = found[0] as AnimationPlayer
-			_setup_animations()
+		else:
+			_debug_info = "model loaded but NO AnimationPlayer inside Idle.fbx"
 		_is_placeholder = false
 		return root
 
@@ -236,54 +250,113 @@ func _build_visual() -> Node3D:
 	return root
 
 
+func _make_debug_label() -> void:
+	var layer := CanvasLayer.new()
+	layer.layer = 20
+	add_child(layer)
+	_debug_label = Label.new()
+	_debug_label.position = Vector2(24.0, 215.0)
+	_debug_label.add_theme_font_size_override("font_size", 14)
+	_debug_label.add_theme_color_override("font_color", Color(1.0, 0.95, 0.4))
+	_debug_label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0))
+	_debug_label.add_theme_constant_override("outline_size", 4)
+	_debug_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	layer.add_child(_debug_label)
+
+
 func _setup_animations() -> void:
 	var lib := AnimationLibrary.new()
+	var report: PackedStringArray = []
 
-	var own := _first_animation(_anim)
+	# Work out where the skeleton is, relative to the AnimationPlayer's root node.
+	var skel_path := ""
+	var anim_root := _anim.get_node_or_null(_anim.root_node)
+	if anim_root:
+		var skel := _find_skeleton(anim_root)
+		if skel:
+			skel_path = str(anim_root.get_path_to(skel))
+	report.append("skeleton: %s" % (skel_path if skel_path != "" else "NOT FOUND"))
+
+	var own := _best_animation(_anim)
 	if own:
-		lib.add_animation("idle", _prepare_animation(own, "idle"))
+		lib.add_animation("idle", _prepare_animation(own, "idle", ""))
+		report.append("idle OK %.1fs" % own.length)
+	else:
+		report.append("idle: NO ANIMATION in Idle.fbx")
 
 	for key in ANIM_FILES:
-		var path: String = ANIM_DIR + String(ANIM_FILES[key])
+		var file_name := String(ANIM_FILES[key])
+		var path: String = ANIM_DIR + file_name
 		if not ResourceLoader.exists(path):
+			report.append("%s: file missing" % str(key))
 			continue
 		var packed := load(path) as PackedScene
 		if packed == null:
+			report.append("%s: cannot load" % str(key))
 			continue
 		var inst := packed.instantiate()
 		var players := inst.find_children("*", "AnimationPlayer", true, false)
+		var added := false
 		if not players.is_empty():
-			var src := _first_animation(players[0] as AnimationPlayer)
+			var src := _best_animation(players[0] as AnimationPlayer)
 			if src:
-				lib.add_animation(str(key), _prepare_animation(src, str(key)))
+				lib.add_animation(str(key), _prepare_animation(src, str(key), skel_path))
+				report.append("%s OK %.1fs" % [str(key), src.length])
+				added = true
+		if not added:
+			report.append("%s: no animation" % str(key))
 		inst.free()
 
 	_anim.add_animation_library(ANIM_LIB, lib)
+	_debug_info = "\n".join(report)
 
 
-func _first_animation(player: AnimationPlayer) -> Animation:
+func _find_skeleton(node: Node) -> Skeleton3D:
+	var found := node.find_children("*", "Skeleton3D", true, false)
+	if found.is_empty():
+		return null
+	return found[0] as Skeleton3D
+
+
+## Mixamo files contain an empty "Take 001" plus the real animation, so pick the longest one.
+func _best_animation(player: AnimationPlayer) -> Animation:
+	var best: Animation = null
 	for anim_name in player.get_animation_list():
 		if str(anim_name) == "RESET":
 			continue
-		return player.get_animation(anim_name)
-	return null
+		var a := player.get_animation(anim_name)
+		if a == null:
+			continue
+		if best == null or a.length > best.length:
+			best = a
+	if best != null and best.length < 0.05:
+		return null
+	return best
 
 
-func _prepare_animation(src: Animation, key: String) -> Animation:
+func _prepare_animation(src: Animation, key: String, skel_path: String) -> Animation:
 	var anim := src.duplicate() as Animation
 	anim.loop_mode = Animation.LOOP_LINEAR if LOOPING.has(key) else Animation.LOOP_NONE
 
-	# Keep the hip bone from travelling forward/sideways, so the animation plays "in place".
 	for t in anim.get_track_count():
-		if anim.track_get_type(t) != Animation.TYPE_POSITION_3D:
-			continue
-		if not str(anim.track_get_path(t)).ends_with("Hips"):
-			continue
-		var count := anim.track_get_key_count(t)
-		if count == 0:
-			continue
-		var first: Vector3 = anim.track_get_key_value(t, 0)
-		for k in count:
-			var v: Vector3 = anim.track_get_key_value(t, k)
-			anim.track_set_key_value(t, k, Vector3(first.x, v.y, first.z))
+		var track_type := anim.track_get_type(t)
+		var is_bone_track := (
+			track_type == Animation.TYPE_POSITION_3D
+			or track_type == Animation.TYPE_ROTATION_3D
+			or track_type == Animation.TYPE_SCALE_3D
+		)
+		var bone := anim.track_get_path(t).get_concatenated_subnames()
+
+		# Point bone tracks of other files at THIS model's skeleton.
+		if is_bone_track and bone != "" and skel_path != "":
+			anim.track_set_path(t, NodePath("%s:%s" % [skel_path, bone]))
+
+		# Keep the hip bone from travelling forward/sideways, so the animation plays "in place".
+		if track_type == Animation.TYPE_POSITION_3D and bone.ends_with("Hips"):
+			var count := anim.track_get_key_count(t)
+			if count > 0:
+				var first: Vector3 = anim.track_get_key_value(t, 0)
+				for k in count:
+					var v: Vector3 = anim.track_get_key_value(t, k)
+					anim.track_set_key_value(t, k, Vector3(first.x, v.y, first.z))
 	return anim
