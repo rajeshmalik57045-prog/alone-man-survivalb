@@ -57,6 +57,9 @@ var _capsule: CapsuleShape3D
 var _anim: AnimationPlayer
 var _debug_label: Label
 var _debug_info := "model: placeholder (no Idle.fbx found)"
+var _stat_ok := 0
+var _stat_total := 0
+var _last_score := 0
 
 
 func _ready() -> void:
@@ -171,7 +174,7 @@ func _update_animation() -> void:
 	if _debug_label:
 		var playing := ""
 		if _anim:
-			playing = "\nplaying: %s" % str(_anim.current_animation)
+			playing = "\nplaying: %s  speed: %.1f" % [str(_anim.current_animation), Vector2(velocity.x, velocity.z).length()]
 		_debug_label.text = _debug_info + playing
 	if _anim == null:
 		return
@@ -268,19 +271,22 @@ func _setup_animations() -> void:
 	var lib := AnimationLibrary.new()
 	var report: PackedStringArray = []
 
-	# Work out where the skeleton is, relative to the AnimationPlayer's root node.
+	# Where is the skeleton, and which bones does it have?
 	var skel_path := ""
+	var bone_map := {}
 	var anim_root := _anim.get_node_or_null(_anim.root_node)
 	if anim_root:
 		var skel := _find_skeleton(anim_root)
 		if skel:
 			skel_path = str(anim_root.get_path_to(skel))
-	report.append("skeleton: %s" % (skel_path if skel_path != "" else "NOT FOUND"))
+			for i in skel.get_bone_count():
+				bone_map[_norm(skel.get_bone_name(i))] = skel.get_bone_name(i)
+	report.append("skeleton: %s, %d bones" % [skel_path if skel_path != "" else "NOT FOUND", bone_map.size()])
 
 	var own := _best_animation(_anim)
 	if own:
-		lib.add_animation("idle", _prepare_animation(own, "idle", ""))
-		report.append("idle OK %.1fs" % own.length)
+		lib.add_animation("idle", _prepare_animation(own, "idle", skel_path, bone_map))
+		report.append("idle %.1fs %s" % [own.length, _stats()])
 	else:
 		report.append("idle: NO ANIMATION in Idle.fbx")
 
@@ -300,8 +306,8 @@ func _setup_animations() -> void:
 		if not players.is_empty():
 			var src := _best_animation(players[0] as AnimationPlayer)
 			if src:
-				lib.add_animation(str(key), _prepare_animation(src, str(key), skel_path))
-				report.append("%s OK %.1fs" % [str(key), src.length])
+				lib.add_animation(str(key), _prepare_animation(src, str(key), skel_path, bone_map))
+				report.append("%s %.1fs %s" % [str(key), src.length, _stats()])
 				added = true
 		if not added:
 			report.append("%s: no animation" % str(key))
@@ -311,6 +317,10 @@ func _setup_animations() -> void:
 	_debug_info = "\n".join(report)
 
 
+func _stats() -> String:
+	return "bones %d/%d keys %d" % [_stat_ok, _stat_total, _last_score]
+
+
 func _find_skeleton(node: Node) -> Skeleton3D:
 	var found := node.find_children("*", "Skeleton3D", true, false)
 	if found.is_empty():
@@ -318,26 +328,46 @@ func _find_skeleton(node: Node) -> Skeleton3D:
 	return found[0] as Skeleton3D
 
 
-## Mixamo files contain an empty "Take 001" plus the real animation, so pick the longest one.
+## "mixamorig_Hips" / "mixamorig:Hips" / "Hips" all become "hips", so bone names always match.
+func _norm(s: String) -> String:
+	var lowered := s.to_lower().replace("mixamorig", "")
+	var res := ""
+	for c in lowered:
+		if (c >= "a" and c <= "z") or (c >= "0" and c <= "9"):
+			res += c
+	return res
+
+
+## Mixamo files contain an empty "Take 001" plus the real animation.
+## The real one has the most keyframes (NOT necessarily the longest), so pick by keyframe count.
 func _best_animation(player: AnimationPlayer) -> Animation:
 	var best: Animation = null
+	var best_score := -1
 	for anim_name in player.get_animation_list():
 		if str(anim_name) == "RESET":
 			continue
 		var a := player.get_animation(anim_name)
 		if a == null:
 			continue
-		if best == null or a.length > best.length:
+		var score := 0
+		for t in a.get_track_count():
+			score += a.track_get_key_count(t)
+		if score > best_score:
+			best_score = score
 			best = a
-	if best != null and best.length < 0.05:
+	_last_score = maxi(best_score, 0)
+	if best_score < 2:
 		return null
 	return best
 
 
-func _prepare_animation(src: Animation, key: String, skel_path: String) -> Animation:
+func _prepare_animation(src: Animation, key: String, skel_path: String, bone_map: Dictionary) -> Animation:
 	var anim := src.duplicate() as Animation
 	anim.loop_mode = Animation.LOOP_LINEAR if LOOPING.has(key) else Animation.LOOP_NONE
 
+	var score := _last_score
+	_stat_ok = 0
+	_stat_total = 0
 	for t in anim.get_track_count():
 		var track_type := anim.track_get_type(t)
 		var is_bone_track := (
@@ -345,11 +375,18 @@ func _prepare_animation(src: Animation, key: String, skel_path: String) -> Anima
 			or track_type == Animation.TYPE_ROTATION_3D
 			or track_type == Animation.TYPE_SCALE_3D
 		)
+		if not is_bone_track:
+			continue
 		var bone := anim.track_get_path(t).get_concatenated_subnames()
+		_stat_total += 1
+		if bone == "":
+			continue
 
-		# Point bone tracks of other files at THIS model's skeleton.
-		if is_bone_track and bone != "" and skel_path != "":
-			anim.track_set_path(t, NodePath("%s:%s" % [skel_path, bone]))
+		# Point the bone track at THIS model's skeleton, matching bone names loosely.
+		var real: String = bone_map.get(_norm(bone), "")
+		if real != "" and skel_path != "":
+			anim.track_set_path(t, NodePath("%s:%s" % [skel_path, real]))
+			_stat_ok += 1
 
 		# Keep the hip bone from travelling forward/sideways, so the animation plays "in place".
 		if track_type == Animation.TYPE_POSITION_3D and bone.ends_with("Hips"):
@@ -359,4 +396,5 @@ func _prepare_animation(src: Animation, key: String, skel_path: String) -> Anima
 				for k in count:
 					var v: Vector3 = anim.track_get_key_value(t, k)
 					anim.track_set_key_value(t, k, Vector3(first.x, v.y, first.z))
+	_last_score = score
 	return anim
