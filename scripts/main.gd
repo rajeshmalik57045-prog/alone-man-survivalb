@@ -3,7 +3,7 @@ extends Node3D
 ## then wires them together with signals.
 
 const InputSetup := preload("res://scripts/input_setup.gd")
-const WorldScript := preload("res://scripts/test_world.gd")
+const WorldScript := preload("res://scripts/world.gd")
 const PlayerScript := preload("res://scripts/player.gd")
 const CameraRigScript := preload("res://scripts/camera_rig.gd")
 const HudScript := preload("res://scripts/hud.gd")
@@ -19,7 +19,7 @@ func _ready() -> void:
 
 	var player = PlayerScript.new()
 	player.name = "Player"
-	player.position = Vector3(0.0, 1.0, 0.0)
+	player.position = Vector3(0.0, world.height_at(0.0, 0.0) + 1.5, 0.0)
 	add_child(player)
 
 	var rig = CameraRigScript.new()
@@ -50,4 +50,4 @@ func _ready() -> void:
 	controls.menu_pressed.connect(hud.on_menu_pressed)
 	player.notified.connect(hud.show_message)
 
-	hud.show_message("ALONE MAN - Phase 1 test world")
+	hud.show_message("ALONE MAN - Phase 2 world")
