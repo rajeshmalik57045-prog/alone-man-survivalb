@@ -129,6 +129,8 @@ func _build_clock() -> void:
 	_clock_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_clock_label.custom_minimum_size = Vector2(320.0, 0.0)
 	_clock_label.add_theme_font_size_override("font_size", 20)
+	_clock_label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 1.0))
+	_clock_label.add_theme_constant_override("outline_size", 5)
 	_clock_label.text = "N    Day 1   06:00"
 	add_child(_clock_label)
 	_clock_label.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP, Control.PRESET_MODE_MINSIZE)
@@ -140,7 +142,9 @@ func _build_message() -> void:
 	_msg_label = Label.new()
 	_msg_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_msg_label.custom_minimum_size = Vector2(420.0, 0.0)
-	_msg_label.add_theme_font_size_override("font_size", 20)
+	_msg_label.add_theme_font_size_override("font_size", 24)
+	_msg_label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 1.0))
+	_msg_label.add_theme_constant_override("outline_size", 8)
 	_msg_label.modulate.a = 0.0
 	add_child(_msg_label)
 	_msg_label.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP, Control.PRESET_MODE_MINSIZE)

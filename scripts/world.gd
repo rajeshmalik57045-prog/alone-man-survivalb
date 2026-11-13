@@ -39,11 +39,15 @@ var _tree_hp := PackedInt32Array()
 var _tree_reach := PackedFloat32Array()
 var _tree_shapes: Array[CollisionShape3D] = []
 var _tree_mms: Array[MultiMesh] = []
+var _tree_placements: Array[Transform3D] = []
+var _tree_locals: Array[Transform3D] = []
 var _rock_points := PackedVector3Array()
 var _rock_hp := PackedInt32Array()
 var _rock_reach := PackedFloat32Array()
 var _rock_shapes: Array[CollisionShape3D] = []
 var _rock_mms: Array[MultiMesh] = []
+var _rock_placements: Array[Transform3D] = []
+var _rock_locals: Array[Transform3D] = []
 
 
 func _init() -> void:
@@ -373,6 +377,9 @@ func _build_trees(rng: RandomNumberGenerator) -> void:
 	if parts.is_empty():
 		parts = _standin_tree_parts()
 	_tree_mms = _spawn_instances(parts, placements, "Trees")
+	_tree_placements = placements
+	for part in parts:
+		_tree_locals.append(part["xform"])
 
 
 func _standin_tree_parts() -> Array:
@@ -438,6 +445,9 @@ func _build_rocks(rng: RandomNumberGenerator) -> void:
 	if parts.is_empty():
 		parts = _standin_rock_parts()
 	_rock_mms = _spawn_instances(parts, placements, "Rocks")
+	_rock_placements = placements
+	for part in parts:
+		_rock_locals.append(part["xform"])
 
 
 func _standin_rock_parts() -> Array:
@@ -519,30 +529,120 @@ func _nearest_resource(pos: Vector3, points: PackedVector3Array, hp: PackedInt32
 	return best
 
 
-## Returns true when the tree has just been felled.
-func hit_tree(i: int, damage: int) -> bool:
+func tree_hp(i: int) -> int:
+	return _tree_hp[i]
+
+
+func rock_hp(i: int) -> int:
+	return _rock_hp[i]
+
+
+## Returns true when the tree has just been felled. `from` is where the player stands.
+func hit_tree(i: int, damage: int, from: Vector3) -> bool:
 	_tree_hp[i] -= damage
+	_spawn_chips(_tree_points[i] + Vector3(0.0, 1.2, 0.0), Color(0.45, 0.28, 0.12))
 	if _tree_hp[i] > 0:
+		_set_tree_pose(i, Vector3.RIGHT, 0.06)
+		get_tree().create_timer(0.1).timeout.connect(_unshake_tree.bind(i))
 		return false
-	_hide_instance(_tree_mms, i, _tree_points[i])
 	_tree_shapes[i].set_deferred("disabled", true)
+	_fell_tree(i, from)
 	return true
+
+
+func _unshake_tree(i: int) -> void:
+	if _tree_hp[i] > 0:
+		_set_tree_pose(i, Vector3.RIGHT, 0.0)
+
+
+func _set_tree_pose(i: int, axis: Vector3, angle: float) -> void:
+	var base: Transform3D = _tree_placements[i]
+	var posed := Transform3D(Basis(axis, angle) * base.basis, base.origin)
+	for k in _tree_mms.size():
+		_tree_mms[k].set_instance_transform(i, posed * _tree_locals[k])
+
+
+func _fall_step(angle: float, i: int, axis: Vector3) -> void:
+	_set_tree_pose(i, axis, angle)
+
+
+## The tree topples away from the player, then disappears.
+func _fell_tree(i: int, from: Vector3) -> void:
+	var away := _tree_points[i] - from
+	away.y = 0.0
+	if away.length() < 0.01:
+		away = Vector3(0.0, 0.0, -1.0)
+	away = away.normalized()
+	var axis := Vector3.UP.cross(away).normalized()
+	var tw := create_tween()
+	tw.set_trans(Tween.TRANS_QUAD)
+	tw.set_ease(Tween.EASE_IN)
+	tw.tween_method(_fall_step.bind(i, axis), 0.0, 1.45, 0.9)
+	tw.tween_callback(_hide_instance.bind(_tree_mms, i, _tree_points[i]))
 
 
 ## Returns true when the rock has just been used up.
 func hit_rock(i: int, damage: int) -> bool:
 	_rock_hp[i] -= damage
+	_spawn_chips(_rock_points[i] + Vector3(0.0, 0.8, 0.0), Color(0.55, 0.55, 0.58))
 	if _rock_hp[i] > 0:
+		_set_rock_scale(0.94, i)
+		get_tree().create_timer(0.1).timeout.connect(_set_rock_scale.bind(1.0, i))
 		return false
-	_hide_instance(_rock_mms, i, _rock_points[i])
 	_rock_shapes[i].set_deferred("disabled", true)
+	var tw := create_tween()
+	tw.tween_method(_set_rock_scale.bind(i), 1.0, 0.001, 0.3)
+	tw.tween_callback(_hide_instance.bind(_rock_mms, i, _rock_points[i]))
 	return true
+
+
+func _set_rock_scale(s: float, i: int) -> void:
+	if _rock_hp[i] <= 0 and s > 0.999:
+		return
+	var base: Transform3D = _rock_placements[i]
+	var posed := Transform3D(base.basis.scaled(Vector3(s, s, s)), base.origin)
+	for k in _rock_mms.size():
+		_rock_mms[k].set_instance_transform(i, posed * _rock_locals[k])
 
 
 func _hide_instance(mms: Array[MultiMesh], i: int, p: Vector3) -> void:
 	var gone := Transform3D(Basis().scaled(Vector3(0.001, 0.001, 0.001)), p)
 	for mm in mms:
 		mm.set_instance_transform(i, gone)
+
+
+## A small burst of chips (wood or stone) when something is hit.
+func _spawn_chips(pos: Vector3, color: Color) -> void:
+	var mesh := BoxMesh.new()
+	mesh.size = Vector3(0.09, 0.09, 0.09)
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = color
+	mesh.material = mat
+
+	var chips := CPUParticles3D.new()
+	chips.mesh = mesh
+	chips.one_shot = true
+	chips.amount = 10
+	chips.lifetime = 0.6
+	chips.explosiveness = 1.0
+	chips.direction = Vector3.UP
+	chips.spread = 70.0
+	chips.initial_velocity_min = 2.0
+	chips.initial_velocity_max = 4.0
+	chips.gravity = Vector3(0.0, -9.0, 0.0)
+	chips.position = pos
+	add_child(chips)
+	chips.emitting = true
+	get_tree().create_timer(1.2).timeout.connect(chips.queue_free)
+
+
+## A picked-up item flies to the player and shrinks, instead of vanishing instantly.
+func fly_pickup(node: Node3D, target: Vector3) -> void:
+	var tw := create_tween()
+	tw.set_parallel(true)
+	tw.tween_property(node, "global_position", target, 0.25)
+	tw.tween_property(node, "scale", Vector3(0.1, 0.1, 0.1), 0.25)
+	tw.chain().tween_callback(node.queue_free)
 
 
 func is_near_water(pos: Vector3) -> bool:

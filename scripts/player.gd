@@ -20,7 +20,10 @@ const ANIM_FILES := {
 	"jump": "Jump.fbx",
 	"crouch_idle": "Crouch Idle.fbx",
 	"crouch_walk": "Crouch Walk Back.fbx",
+	"chop": "Chop.fbx",  # optional: played when chopping / mining
+	"pickup": "Pickup.fbx",  # optional: played when picking up / drinking
 }
+const OPTIONAL_ANIMS := ["chop", "pickup"]
 const LOOPING := ["idle", "walk", "run", "crouch_idle", "crouch_walk"]
 const ANIM_LIB := "game"
 const FBX_FACING_YAW := PI  # Mixamo models face +Z, the game moves toward -Z
@@ -57,6 +60,8 @@ var _is_placeholder := true
 var _shape: CollisionShape3D
 var _capsule: CapsuleShape3D
 var _anim: AnimationPlayer
+var _action_until := 0.0
+var _swing_tween: Tween
 var _debug_label: Label
 var _debug_info := "model: placeholder (no Idle.fbx found)"
 var _stat_ok := 0
@@ -113,6 +118,25 @@ func get_forward() -> Vector3:
 	return Vector3(-sin(yaw), 0.0, -cos(yaw))
 
 
+## Plays a one-shot action animation if the file exists, otherwise leans the body forward.
+func _play_action(key: String) -> void:
+	var full := "%s/%s" % [ANIM_LIB, key]
+	if _anim != null and _anim.has_animation(full):
+		var clip_length := _anim.get_animation(full).length
+		_action_until = Time.get_ticks_msec() / 1000.0 + minf(clip_length, 1.2)
+		_anim.speed_scale = 1.2
+		_anim.play(full, 0.1)
+		return
+	if _visual == null:
+		return
+	if _swing_tween and _swing_tween.is_valid():
+		_swing_tween.kill()
+	_visual.rotation.x = 0.0
+	_swing_tween = create_tween()
+	_swing_tween.tween_property(_visual, "rotation:x", -0.5, 0.10)
+	_swing_tween.tween_property(_visual, "rotation:x", 0.0, 0.20)
+
+
 ## The USE button: does the most useful thing within reach.
 func use_action() -> void:
 	if state == null or world == null:
@@ -136,7 +160,8 @@ func use_action() -> void:
 		var amount := int(best.get_meta("amount", 1))
 		if state.add(item_id, amount):
 			best.remove_from_group("interactable")
-			best.queue_free()
+			world.fly_pickup(best, pos + Vector3(0.0, 1.0, 0.0))
+			_play_action("pickup")
 			notified.emit("%s x%d collected" % [state.item_name(item_id), amount])
 		else:
 			notified.emit("Too heavy to carry")
@@ -148,6 +173,7 @@ func use_action() -> void:
 		if state.count("raw_meat") > 0:
 			state.remove("raw_meat", 1)
 			state.add("cooked_meat", 1)
+			_play_action("pickup")
 			notified.emit("Meat cooked")
 		else:
 			notified.emit("Campfire - bring raw meat to cook it")
@@ -161,11 +187,13 @@ func use_action() -> void:
 			notified.emit("Too heavy to carry")
 			return
 		state.add("wood", per_hit)
-		var felled: bool = world.hit_tree(tree_index, per_hit)
+		_play_action("chop")
+		var felled: bool = world.hit_tree(tree_index, per_hit, pos)
 		if felled:
-			notified.emit("Wood +%d  (tree felled)" % per_hit)
+			notified.emit("Wood +%d  (tree felled!)" % per_hit)
 		else:
-			notified.emit("Wood +%d" % per_hit)
+			var hits_left := int(ceil(float(world.tree_hp(tree_index)) / float(per_hit)))
+			notified.emit("Wood +%d  (%d more hits to fell)" % [per_hit, hits_left])
 		return
 
 	# 4) rock: mine stone
@@ -175,11 +203,12 @@ func use_action() -> void:
 			notified.emit("Too heavy to carry")
 			return
 		state.add("stone", 1)
+		_play_action("chop")
 		var used_up: bool = world.hit_rock(rock_index, 1)
 		if used_up:
 			notified.emit("Stone +1  (rock used up)")
 		else:
-			notified.emit("Stone +1")
+			notified.emit("Stone +1  (%d more hits)" % world.rock_hp(rock_index))
 		return
 
 	# 5) water: drink
@@ -188,6 +217,7 @@ func use_action() -> void:
 			notified.emit("You are not thirsty")
 		else:
 			thirst = minf(100.0, thirst + 30.0)
+			_play_action("pickup")
 			notified.emit("You drink water")
 		return
 
@@ -249,6 +279,8 @@ func _update_animation() -> void:
 		_debug_label.text = _debug_info + playing
 	if _anim == null:
 		return
+	if Time.get_ticks_msec() / 1000.0 < _action_until:
+		return  # a chop / pickup animation is still playing
 	var hspeed := Vector2(velocity.x, velocity.z).length()
 	var key := "idle"
 	var anim_speed := 1.0
@@ -365,7 +397,8 @@ func _setup_animations() -> void:
 		var file_name := String(ANIM_FILES[key])
 		var path: String = ANIM_DIR + file_name
 		if not ResourceLoader.exists(path):
-			report.append("%s: file missing" % str(key))
+			if not OPTIONAL_ANIMS.has(str(key)):
+				report.append("%s: file missing" % str(key))
 			continue
 		var packed := load(path) as PackedScene
 		if packed == null:

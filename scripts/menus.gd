@@ -126,8 +126,23 @@ func _make_button(text: String, min_width: float, callback: Callable) -> Button:
 	b.text = text
 	b.custom_minimum_size = Vector2(min_width, 52.0)
 	b.add_theme_font_size_override("font_size", 20)
+	b.add_theme_stylebox_override("normal", _button_style(Color(0.20, 0.30, 0.22)))
+	b.add_theme_stylebox_override("hover", _button_style(Color(0.26, 0.38, 0.28)))
+	b.add_theme_stylebox_override("pressed", _button_style(Color(0.40, 0.58, 0.40)))
+	b.add_theme_stylebox_override("disabled", _button_style(Color(0.13, 0.15, 0.14)))
+	b.add_theme_color_override("font_disabled_color", Color(0.5, 0.5, 0.5))
 	b.pressed.connect(callback)
 	return b
+
+
+func _button_style(color: Color) -> StyleBoxFlat:
+	var s := StyleBoxFlat.new()
+	s.bg_color = color
+	s.border_color = Color(1.0, 1.0, 1.0, 0.35)
+	s.set_border_width_all(2)
+	s.set_corner_radius_all(10)
+	s.set_content_margin_all(8.0)
+	return s
 
 
 func _add_row(text: String, buttons: Array) -> void:
