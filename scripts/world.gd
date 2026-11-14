@@ -394,21 +394,23 @@ func _standin_tree_parts() -> Array:
 	trunk_mat.roughness = 1.0
 	trunk.material = trunk_mat
 
-	var leaves := CylinderMesh.new()
-	leaves.top_radius = 0.0
-	leaves.bottom_radius = 1.9
-	leaves.height = 5.2
-	leaves.radial_segments = 7
-	leaves.rings = 1
 	var leaf_mat := StandardMaterial3D.new()
-	leaf_mat.albedo_color = Color(0.13, 0.30, 0.14)
+	leaf_mat.albedo_color = Color(0.12, 0.34, 0.14)
 	leaf_mat.roughness = 1.0
-	leaves.material = leaf_mat
 
-	return [
-		{"mesh": trunk, "xform": Transform3D(Basis.IDENTITY, Vector3(0.0, 1.5, 0.0))},
-		{"mesh": leaves, "xform": Transform3D(Basis.IDENTITY, Vector3(0.0, 4.9, 0.0))},
-	]
+	# three stacked cones (wide at the bottom, narrow at the top) look like a pine
+	var parts := [{"mesh": trunk, "xform": Transform3D(Basis.IDENTITY, Vector3(0.0, 1.5, 0.0))}]
+	var layers := [[2.3, 2.6, 3.0], [1.75, 2.4, 4.4], [1.2, 2.2, 5.7]]  # radius, height, centre y
+	for layer in layers:
+		var cone := CylinderMesh.new()
+		cone.top_radius = 0.0
+		cone.bottom_radius = float(layer[0])
+		cone.height = float(layer[1])
+		cone.radial_segments = 8
+		cone.rings = 1
+		cone.material = leaf_mat
+		parts.append({"mesh": cone, "xform": Transform3D(Basis.IDENTITY, Vector3(0.0, float(layer[2]), 0.0))})
+	return parts
 
 
 # ---------- rocks ----------
