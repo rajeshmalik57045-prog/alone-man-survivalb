@@ -30,6 +30,9 @@ const ROCK_MODEL_SCALE := 1.0
 var time_minutes := 7.0 * 60.0
 var day := 1
 var _sun: DirectionalLight3D
+var _wolf_timer := 8.0
+const WolfScript := preload("res://scripts/wolf.gd")
+const MAX_WOLVES := 3
 var _env: Environment
 var _sky_mat: ProceduralSkyMaterial
 
@@ -139,6 +142,39 @@ func _build_environment() -> void:
 	_sun = sun
 
 
+## Wolves come out at night near the player and leave when the sun is up.
+func _update_wolves(delta: float) -> void:
+	var night := time_minutes > 19.0 * 60.0 or time_minutes < 5.0 * 60.0
+	var wolves := get_tree().get_nodes_in_group("wolf")
+	if not night:
+		if time_minutes > 6.0 * 60.0:
+			for w in wolves:
+				w.queue_free()
+		return
+	_wolf_timer -= delta
+	if _wolf_timer > 0.0 or wolves.size() >= MAX_WOLVES:
+		return
+	_wolf_timer = 12.0
+	var player := get_parent().get_node_or_null("Player") as Node3D
+	if player == null:
+		return
+	for attempt in 12:
+		var a := randf() * TAU
+		var r := randf_range(32.0, 44.0)
+		var x := player.global_position.x + cos(a) * r
+		var z := player.global_position.z + sin(a) * r
+		if absf(x) > 105.0 or absf(z) > 105.0:
+			continue
+		var h := height_at(x, z)
+		if h < WATER_LEVEL + 0.8:
+			continue
+		var wolf := WolfScript.new()
+		wolf.setup(self)
+		wolf.position = Vector3(x, h, z)
+		add_child(wolf)
+		return
+
+
 ## Day / night: moves the sun, changes the sky, fog and ambient light.
 func _process(delta: float) -> void:
 	time_minutes += delta * 2.0
@@ -152,6 +188,7 @@ func _process(delta: float) -> void:
 	var day_f := clampf(elev * 3.0, 0.0, 1.0)
 	var glow := clampf(1.0 - absf(elev) * 4.0, 0.0, 1.0)  # sunrise / sunset warmth
 
+	_update_wolves(delta)
 	_sun.rotation_degrees = Vector3(-elev * 70.0 - 8.0, -35.0 + t * 120.0, 0.0)
 	_sun.light_energy = 0.9 * day_f
 	_sun.shadow_enabled = day_f > 0.05

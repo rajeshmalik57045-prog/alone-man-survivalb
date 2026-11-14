@@ -70,7 +70,7 @@ func _ready() -> void:
 	player.notified.connect(_hud.show_message)
 	state.message.connect(_hud.show_message)
 
-	_hud.show_message("ALONE MAN - Phase 4: day and night - keep a torch")
+	_hud.show_message("ALONE MAN - Phase 4: survive the night - wolves hunt after dark")
 
 
 func _on_menu_pressed(id: String) -> void:
