@@ -65,9 +65,7 @@ func _process(delta: float) -> void:
 				_mats[i].albedo_color = _base_colors[i]
 
 	if _player == null:
-		var parent: Node = null
-		if world != null:
-			parent = world.get_parent()
+		var parent := world.get_parent() if world else null
 		if parent:
 			_player = parent.get_node_or_null("Player") as Node3D
 	var speed := 0.0

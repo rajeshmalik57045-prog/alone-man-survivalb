@@ -12,7 +12,6 @@ var _status: Label
 var _strip: Label
 var _mode := "inventory"
 var _top: HBoxContainer
-var _confirm_new := false
 
 
 func _ready() -> void:
@@ -34,7 +33,6 @@ func setup(game_state, mobile_controls) -> void:
 
 func open(mode: String) -> void:
 	_mode = mode
-	_confirm_new = false
 	if controls:
 		controls.reset_touches()
 	get_tree().paused = true
@@ -212,12 +210,7 @@ func _refresh() -> void:
 		_title.text = "PAUSED"
 		_add_row("Resume the game", [{"text": "RESUME", "cb": close}])
 		_add_row("Save your progress now (it also saves by itself every 45 seconds)", [{"text": "SAVE", "cb": _on_save}])
-		var new_text := "NEW GAME"
-		var new_note := "Start over: deletes the saved game and begins a new one"
-		if _confirm_new:
-			new_text = "SURE?"
-			new_note = "Tap SURE? again to delete everything and start over"
-		_add_row(new_note, [{"text": new_text, "cb": _on_new_game}])
+		_add_row("Start over: deletes the saved game and begins a new one", [{"text": "NEW GAME", "cb": _on_new_game}])
 	elif _mode == "inventory":
 		_title.text = "INVENTORY     %.1f / %.0f kg" % [state.weight(), state.MAX_WEIGHT]
 		var ids: Array = state.items.keys()
@@ -259,10 +252,6 @@ func _on_save() -> void:
 
 
 func _on_new_game() -> void:
-	if not _confirm_new:
-		_confirm_new = true
-		_refresh()
-		return
 	state.autosave_enabled = false
 	state.delete_save()
 	get_tree().paused = false

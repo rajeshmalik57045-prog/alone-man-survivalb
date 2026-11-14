@@ -63,9 +63,7 @@ func _process(delta: float) -> void:
 	_cooldown = maxf(0.0, _cooldown - delta)
 
 	if _player == null:
-		var parent: Node = null
-		if world != null:
-			parent = world.get_parent()
+		var parent := world.get_parent() if world else null
 		if parent:
 			_player = parent.get_node_or_null("Player") as Node3D
 		if _player == null:
