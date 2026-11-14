@@ -38,6 +38,7 @@ func _ready() -> void:
 	add_child(_hud)
 	_hud.bind(player, rig)
 	_hud.world = world
+	world.weather_changed.connect(_hud.show_message)
 
 	var controls_layer := CanvasLayer.new()
 	controls_layer.name = "ControlsLayer"

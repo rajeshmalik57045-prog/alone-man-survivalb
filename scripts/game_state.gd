@@ -3,6 +3,7 @@ extends Node
 
 signal inventory_changed
 signal message(text: String)
+signal died
 
 const MAX_WEIGHT := 60.0
 
@@ -255,7 +256,11 @@ func _warn(key: String, active: bool, text: String) -> void:
 
 
 func _die() -> void:
-	message.emit("You died - respawning at camp")
+	player.health = 1.0  # stops the starvation loop until the player chooses to respawn
+	died.emit()
+
+
+func respawn() -> void:
 	player.health = 60.0
 	player.hunger = 60.0
 	player.thirst = 60.0

@@ -11,6 +11,7 @@ var _list: VBoxContainer
 var _status: Label
 var _strip: Label
 var _mode := "inventory"
+var _top: HBoxContainer
 
 
 func _ready() -> void:
@@ -26,6 +27,7 @@ func setup(game_state, mobile_controls) -> void:
 	controls = mobile_controls
 	state.inventory_changed.connect(_on_inventory_changed)
 	state.message.connect(_on_state_message)
+	state.died.connect(open.bind("dead"))
 	_update_strip()
 
 
@@ -90,6 +92,7 @@ func _build_panel() -> void:
 	panel.add_child(vbox)
 
 	var top := HBoxContainer.new()
+	_top = top
 	top.add_theme_constant_override("separation", 10)
 	vbox.add_child(top)
 	top.add_child(_make_button("INVENTORY", 170.0, _show_mode.bind("inventory")))
@@ -197,7 +200,13 @@ func _refresh() -> void:
 		_list.remove_child(c)
 		c.queue_free()
 
-	if _mode == "pause":
+	_top.visible = _mode != "dead"
+	if _mode == "dead":
+		_title.text = "YOU DIED"
+		var survived: int = state.world.day
+		_add_row("You survived %d day%s in the wilderness." % [survived, "" if survived == 1 else "s"], [])
+		_add_row("Wake up at camp with some of your strength back. Your items are kept.", [{"text": "RESPAWN", "cb": _on_respawn}])
+	elif _mode == "pause":
 		_title.text = "PAUSED"
 		_add_row("Resume the game", [{"text": "RESUME", "cb": close}])
 		_add_row("Save your progress now (it also saves by itself every 45 seconds)", [{"text": "SAVE", "cb": _on_save}])
@@ -228,6 +237,11 @@ func _refresh() -> void:
 				parts.append("%d %s (have %d)" % [int(cost[cid]), state.item_name(str(cid)), state.count(str(cid))])
 			var text := "%s\n%s  -  %s" % [state.item_name(rid), ", ".join(parts), str(recipe["note"])]
 			_add_row(text, [{"text": "CRAFT", "cb": _on_craft.bind(rid), "enabled": state.can_craft(recipe)}])
+
+
+func _on_respawn() -> void:
+	state.respawn()
+	close()
 
 
 func _on_save() -> void:

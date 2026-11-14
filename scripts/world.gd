@@ -31,6 +31,12 @@ var time_minutes := 7.0 * 60.0
 var day := 1
 var _sun: DirectionalLight3D
 var _wolf_timer := 8.0
+signal weather_changed(text: String)
+var raining := false
+var _rain_level := 0.0
+var _rain_timer := 90.0
+var _rain: CPUParticles3D
+var _rain_player: Node3D
 var _structures: Array = []  # placed campfires / shelters, for saving
 const WolfScript := preload("res://scripts/wolf.gd")
 const MAX_WOLVES := 3
@@ -81,6 +87,7 @@ func _ready() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 20261113
 	_build_environment()
+	_build_rain()
 	_build_terrain()
 	_build_water()
 	_build_boundary()
@@ -143,6 +150,46 @@ func _build_environment() -> void:
 	_sun = sun
 
 
+func _build_rain() -> void:
+	var drop := BoxMesh.new()
+	drop.size = Vector3(0.025, 0.55, 0.025)
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.75, 0.82, 0.95, 0.6)
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	drop.material = mat
+	_rain = CPUParticles3D.new()
+	_rain.mesh = drop
+	_rain.amount = 450
+	_rain.lifetime = 0.8
+	_rain.preprocess = 0.8
+	_rain.emission_shape = CPUParticles3D.EMISSION_SHAPE_BOX
+	_rain.emission_box_extents = Vector3(18.0, 0.1, 18.0)
+	_rain.direction = Vector3(0.1, -1.0, 0.0)
+	_rain.spread = 3.0
+	_rain.initial_velocity_min = 22.0
+	_rain.initial_velocity_max = 26.0
+	_rain.gravity = Vector3.ZERO
+	_rain.emitting = false
+	_rain.top_level = true
+	add_child(_rain)
+
+
+## Random rain showers: they come and go, darkening the sky.
+func _update_weather(delta: float) -> void:
+	_rain_timer -= delta
+	if _rain_timer <= 0.0:
+		raining = not raining
+		_rain_timer = randf_range(40.0, 90.0) if raining else randf_range(90.0, 200.0)
+		weather_changed.emit("It starts to rain" if raining else "The rain stops")
+	_rain_level = move_toward(_rain_level, 1.0 if raining else 0.0, delta * 0.25)
+	if _rain_player == null:
+		_rain_player = get_parent().get_node_or_null("Player") as Node3D
+	if _rain_player:
+		_rain.global_position = _rain_player.global_position + Vector3(0.0, 13.0, 0.0)
+	_rain.emitting = _rain_level > 0.3
+
+
 ## Wolves come out at night near the player and leave when the sun is up.
 func _update_wolves(delta: float) -> void:
 	var night := time_minutes > 19.0 * 60.0 or time_minutes < 5.0 * 60.0
@@ -190,14 +237,19 @@ func _process(delta: float) -> void:
 	var glow := clampf(1.0 - absf(elev) * 4.0, 0.0, 1.0)  # sunrise / sunset warmth
 
 	_update_wolves(delta)
+	_update_weather(delta)
 	_sun.rotation_degrees = Vector3(-elev * 70.0 - 8.0, -35.0 + t * 120.0, 0.0)
-	_sun.light_energy = 0.9 * day_f
+	_sun.light_energy = 0.9 * day_f * (1.0 - 0.55 * _rain_level)
 	_sun.shadow_enabled = day_f > 0.05
 	_sun.light_color = Color(1.0, 0.96, 0.88).lerp(Color(1.0, 0.62, 0.35), glow)
 
 	var top := Color(0.02, 0.03, 0.09).lerp(Color(0.25, 0.47, 0.78), day_f)
 	var horizon := Color(0.05, 0.07, 0.15).lerp(Color(0.68, 0.80, 0.90), day_f)
 	horizon = horizon.lerp(Color(0.95, 0.55, 0.30), glow * 0.7)
+	var rain_col := Color(0.38, 0.41, 0.46) * (0.15 + 0.85 * day_f)
+	top = top.lerp(rain_col, _rain_level * 0.85)
+	horizon = horizon.lerp(rain_col, _rain_level * 0.85)
+	_env.fog_density = lerpf(0.004, 0.012, _rain_level)
 	_sky_mat.sky_top_color = top
 	_sky_mat.sky_horizon_color = horizon
 	_sky_mat.ground_horizon_color = horizon
