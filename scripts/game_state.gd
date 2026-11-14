@@ -28,7 +28,7 @@ const ITEMS := {
 # limit: 0 = can craft as many as you like, 1 = only one at a time
 const RECIPES := [
 	{"id": "stone_axe", "cost": {"wood": 3, "stone": 2}, "limit": 1, "note": "Chops trees faster"},
-	{"id": "torch", "cost": {"wood": 2, "stone": 1}, "limit": 1, "note": "Light for the night (later phase)"},
+	{"id": "torch", "cost": {"wood": 2, "stone": 1}, "limit": 1, "note": "Held in your hand, it lights the night"},
 	{"id": "campfire", "cost": {"wood": 4, "stone": 2}, "limit": 0, "note": "Light, and cooks raw meat"},
 	{"id": "shelter", "cost": {"wood": 8, "stone": 4}, "limit": 0, "note": "A roof over your head"},
 ]

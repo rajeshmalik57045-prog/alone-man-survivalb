@@ -634,6 +634,20 @@ func _spawn_animal(kind: String, rng: RandomNumberGenerator, min_r: float, max_r
 	add_child(a)
 
 
+const DROP_COLORS := {
+	"wood": Color(0.45, 0.28, 0.12), "stone": Color(0.5, 0.5, 0.55),
+	"berries": Color(0.75, 0.10, 0.20), "raw_meat": Color(0.80, 0.35, 0.35),
+	"cooked_meat": Color(0.55, 0.30, 0.15), "stone_axe": Color(0.6, 0.6, 0.65),
+	"torch": Color(0.9, 0.55, 0.15),
+}
+
+
+## Puts one item on the ground (used by DROP). It can be picked up again with USE.
+func drop_item(item_id: String, pos: Vector3) -> void:
+	pos.y = height_at(pos.x, pos.z)
+	_add_pickup(pos, item_id, 1, DROP_COLORS.get(item_id, Color(0.8, 0.8, 0.8)))
+
+
 func _add_pickup(pos: Vector3, item_id: String, amount: int, color: Color) -> void:
 	var node := Node3D.new()
 	node.position = pos
@@ -887,14 +901,14 @@ func _make_campfire(pos: Vector3) -> void:
 	for k in 7:
 		var a := TAU * float(k) / 7.0
 		var sm := SphereMesh.new()
-		sm.radius = 0.16
-		sm.height = 0.26
+		sm.radius = 0.28
+		sm.height = 0.44
 		sm.radial_segments = 6
 		sm.rings = 3
 		sm.material = stone_mat
 		var st := MeshInstance3D.new()
 		st.mesh = sm
-		st.position = Vector3(cos(a) * 0.55, 0.1, sin(a) * 0.55)
+		st.position = Vector3(cos(a) * 0.85, 0.16, sin(a) * 0.85)
 		fire.add_child(st)
 
 	var log_mat := StandardMaterial3D.new()
@@ -902,14 +916,14 @@ func _make_campfire(pos: Vector3) -> void:
 	log_mat.roughness = 1.0
 	for k in 3:
 		var cm := CylinderMesh.new()
-		cm.top_radius = 0.07
-		cm.bottom_radius = 0.07
-		cm.height = 0.8
+		cm.top_radius = 0.11
+		cm.bottom_radius = 0.11
+		cm.height = 1.3
 		cm.radial_segments = 6
 		cm.material = log_mat
 		var lg := MeshInstance3D.new()
 		lg.mesh = cm
-		lg.position = Vector3(0.0, 0.14, 0.0)
+		lg.position = Vector3(0.0, 0.22, 0.0)
 		lg.rotation = Vector3(deg_to_rad(80.0), TAU * float(k) / 3.0, 0.0)
 		fire.add_child(lg)
 
@@ -921,8 +935,8 @@ func _make_campfire(pos: Vector3) -> void:
 	fire.add_child(light)
 
 	var flame_mesh := SphereMesh.new()
-	flame_mesh.radius = 0.09
-	flame_mesh.height = 0.18
+	flame_mesh.radius = 0.2
+	flame_mesh.height = 0.4
 	flame_mesh.radial_segments = 6
 	flame_mesh.rings = 3
 	var flame_mat := StandardMaterial3D.new()
@@ -935,17 +949,36 @@ func _make_campfire(pos: Vector3) -> void:
 
 	var flame := CPUParticles3D.new()
 	flame.mesh = flame_mesh
-	flame.amount = 20
-	flame.lifetime = 0.8
+	flame.amount = 30
+	flame.lifetime = 1.0
 	flame.direction = Vector3.UP
 	flame.spread = 14.0
-	flame.initial_velocity_min = 0.7
-	flame.initial_velocity_max = 1.4
+	flame.initial_velocity_min = 1.2
+	flame.initial_velocity_max = 2.2
 	flame.gravity = Vector3.ZERO
 	flame.scale_amount_min = 0.6
 	flame.scale_amount_max = 1.3
-	flame.position = Vector3(0.0, 0.25, 0.0)
+	flame.position = Vector3(0.0, 0.3, 0.0)
 	fire.add_child(flame)
+
+	# a solid glowing flame, so the fire is easy to see even from far away
+	var core := CylinderMesh.new()
+	core.top_radius = 0.0
+	core.bottom_radius = 0.38
+	core.height = 1.1
+	core.radial_segments = 6
+	core.rings = 1
+	var core_mat := StandardMaterial3D.new()
+	core_mat.albedo_color = Color(1.0, 0.5, 0.1)
+	core_mat.emission_enabled = true
+	core_mat.emission = Color(1.0, 0.4, 0.05)
+	core_mat.emission_energy_multiplier = 2.5
+	core_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	core.material = core_mat
+	var core_inst := MeshInstance3D.new()
+	core_inst.mesh = core
+	core_inst.position = Vector3(0.0, 0.75, 0.0)
+	fire.add_child(core_inst)
 
 	add_child(fire)
 

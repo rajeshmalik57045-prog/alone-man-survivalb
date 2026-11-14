@@ -12,6 +12,8 @@ var _status: Label
 var _strip: Label
 var _mode := "inventory"
 var _top: HBoxContainer
+var _confirm_new := false
+var _map_tex: ImageTexture
 
 
 func _ready() -> void:
@@ -33,6 +35,7 @@ func setup(game_state, mobile_controls) -> void:
 
 func open(mode: String) -> void:
 	_mode = mode
+	_confirm_new = false
 	if controls:
 		controls.reset_touches()
 	get_tree().paused = true
@@ -148,9 +151,26 @@ func _button_style(color: Color) -> StyleBoxFlat:
 	return s
 
 
-func _add_row(text: String, buttons: Array) -> void:
+func _icon_for(id: String) -> Texture2D:
+	var path := "res://assets/icons/%s.png" % id
+	if id != "" and ResourceLoader.exists(path):
+		return load(path) as Texture2D
+	return null
+
+
+func _add_row(text: String, buttons: Array, icon_id := "") -> void:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
+
+	var tex := _icon_for(icon_id)
+	if tex != null:
+		var pic := TextureRect.new()
+		pic.texture = tex
+		pic.custom_minimum_size = Vector2(76.0, 76.0)
+		pic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		pic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		pic.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(pic)
 
 	var label := Label.new()
 	label.text = text
@@ -206,11 +226,19 @@ func _refresh() -> void:
 		var survived: int = state.world.day
 		_add_row("You survived %d day%s in the wilderness." % [survived, "" if survived == 1 else "s"], [])
 		_add_row("Wake up at camp with some of your strength back. Your items are kept.", [{"text": "RESPAWN", "cb": _on_respawn}])
+	elif _mode == "map":
+		_title.text = "MAP     (north is up)"
+		_build_map()
 	elif _mode == "pause":
 		_title.text = "PAUSED"
 		_add_row("Resume the game", [{"text": "RESUME", "cb": close}])
 		_add_row("Save your progress now (it also saves by itself every 45 seconds)", [{"text": "SAVE", "cb": _on_save}])
-		_add_row("Start over: deletes the saved game and begins a new one", [{"text": "NEW GAME", "cb": _on_new_game}])
+		var new_text := "NEW GAME"
+		var new_note := "Start over: deletes the saved game and begins a new one"
+		if _confirm_new:
+			new_text = "SURE?"
+			new_note = "Tap SURE? again to delete everything and start over"
+		_add_row(new_note, [{"text": new_text, "cb": _on_new_game}])
 	elif _mode == "inventory":
 		_title.text = "INVENTORY     %.1f / %.0f kg" % [state.weight(), state.MAX_WEIGHT]
 		var ids: Array = state.items.keys()
@@ -226,7 +254,7 @@ func _refresh() -> void:
 			elif def.has("place"):
 				buttons.append({"text": "PLACE", "cb": _on_use.bind(str(id))})
 			buttons.append({"text": "DROP", "cb": _on_drop.bind(str(id))})
-			_add_row("%s  x%d    (%.1f kg)" % [str(def["name"]), n, float(def["weight"]) * float(n)], buttons)
+			_add_row("%s  x%d    (%.1f kg)" % [str(def["name"]), n, float(def["weight"]) * float(n)], buttons, str(id))
 	else:
 		_title.text = "CRAFTING"
 		for recipe in state.RECIPES:
@@ -236,7 +264,73 @@ func _refresh() -> void:
 			for cid in cost:
 				parts.append("%d %s (have %d)" % [int(cost[cid]), state.item_name(str(cid)), state.count(str(cid))])
 			var text := "%s\n%s  -  %s" % [state.item_name(rid), ", ".join(parts), str(recipe["note"])]
-			_add_row(text, [{"text": "CRAFT", "cb": _on_craft.bind(rid), "enabled": state.can_craft(recipe)}])
+			_add_row(text, [{"text": "CRAFT", "cb": _on_craft.bind(rid), "enabled": state.can_craft(recipe)}], rid)
+
+
+## The island seen from above: water, sand, grass and hills, plus you and your camps.
+func _make_map_texture() -> ImageTexture:
+	var w = state.world
+	var res := 120
+	var img := Image.create(res, res, false, Image.FORMAT_RGB8)
+	for iy in res:
+		for ix in res:
+			var x: float = (float(ix) + 0.5) / float(res) * w.SIZE - w.SIZE * 0.5
+			var z: float = (float(iy) + 0.5) / float(res) * w.SIZE - w.SIZE * 0.5
+			var h: float = w.height_at(x, z)
+			var c: Color
+			if h < w.WATER_LEVEL:
+				c = Color(0.22, 0.45, 0.80)
+			elif h < w.WATER_LEVEL + 0.9:
+				c = Color(0.86, 0.80, 0.55)
+			else:
+				var k := clampf(h / w.MAX_HEIGHT, 0.0, 1.0)
+				c = Color(0.46, 0.78, 0.38).lerp(Color(0.22, 0.46, 0.22), k)
+				if k > 0.8:
+					c = c.lerp(Color(0.9, 0.9, 0.92), (k - 0.8) * 4.0)
+			img.set_pixel(ix, iy, c)
+	return ImageTexture.create_from_image(img)
+
+
+func _map_dot(parent: Control, world_x: float, world_z: float, size: float, color: Color) -> void:
+	var w = state.world
+	var side := parent.custom_minimum_size.x
+	var dot := ColorRect.new()
+	dot.color = color
+	dot.size = Vector2(size, size)
+	dot.position = Vector2(
+		(world_x + w.SIZE * 0.5) / w.SIZE * side - size * 0.5,
+		(world_z + w.SIZE * 0.5) / w.SIZE * side - size * 0.5
+	)
+	dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	parent.add_child(dot)
+
+
+func _build_map() -> void:
+	if _map_tex == null:
+		_map_tex = _make_map_texture()
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 16)
+
+	var pic := TextureRect.new()
+	pic.texture = _map_tex
+	pic.custom_minimum_size = Vector2(330.0, 330.0)
+	pic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	pic.stretch_mode = TextureRect.STRETCH_SCALE
+	pic.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	row.add_child(pic)
+
+	for s in state.world._structures:
+		var col := Color(1.0, 0.55, 0.1) if str(s["kind"]) == "campfire" else Color(1.0, 1.0, 1.0)
+		_map_dot(pic, float(s["x"]), float(s["z"]), 12.0, col)
+	var p: Vector3 = state.player.global_position
+	_map_dot(pic, p.x, p.z, 16.0, Color(0.0, 0.0, 0.0))
+	_map_dot(pic, p.x, p.z, 10.0, Color(1.0, 0.95, 0.1))
+
+	var legend := Label.new()
+	legend.text = "Yellow = you\nOrange = campfire\nWhite = shelter\n\nBlue = water\nYellow-sand = beach\nGreen = land\nWhite = high hills\n\nThe island is 240 m wide."
+	legend.add_theme_font_size_override("font_size", 20)
+	row.add_child(legend)
+	_list.add_child(row)
 
 
 func _on_respawn() -> void:
@@ -252,6 +346,10 @@ func _on_save() -> void:
 
 
 func _on_new_game() -> void:
+	if not _confirm_new:
+		_confirm_new = true
+		_refresh()
+		return
 	state.autosave_enabled = false
 	state.delete_save()
 	get_tree().paused = false

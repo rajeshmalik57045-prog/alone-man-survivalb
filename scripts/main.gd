@@ -78,7 +78,7 @@ func _ready() -> void:
 
 
 func _on_menu_pressed(id: String) -> void:
-	if id == "inventory" or id == "crafting" or id == "pause":
+	if id == "inventory" or id == "crafting" or id == "pause" or id == "map":
 		_menus.open(id)
 	else:
 		_hud.on_menu_pressed(id)
