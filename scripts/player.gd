@@ -28,7 +28,7 @@ const LOOPING := ["idle", "walk", "run", "crouch_idle", "crouch_walk"]
 const ANIM_LIB := "game"
 const FBX_FACING_YAW := PI  # Mixamo models face +Z, the game moves toward -Z
 
-const SHOW_DEBUG := true  # yellow debug text (top-left); set to false when animations work
+const SHOW_DEBUG := false  # yellow debug text (top-left); set to false when animations work
 
 const GRAVITY := 18.0
 const STAND_HEIGHT := 1.8
@@ -171,7 +171,28 @@ func use_action() -> void:
 			notified.emit("Too heavy to carry")
 		return
 
-	# 2) campfire: cook raw meat
+	# 2) animal: hunt it (a Stone Axe hits harder)
+	var prey = null  # an animal.gd node
+	var prey_dist := 2.6
+	for a in get_tree().get_nodes_in_group("animal"):
+		var an := a as Node3D
+		if an == null:
+			continue
+		var ad := pos.distance_to(an.global_position)
+		if ad < prey_dist:
+			prey_dist = ad
+			prey = an
+	if prey != null:
+		_play_action("chop")
+		var dmg := 2 if state.count("stone_axe") > 0 else 1
+		var prey_name: String = prey.display_name()
+		if prey.hit(dmg):
+			notified.emit("%s killed - pick up the meat" % prey_name)
+		else:
+			notified.emit("%s hit (%d more hits)" % [prey_name, prey.hp])
+		return
+
+	# 3) campfire: cook raw meat
 	var fire = world.nearest_campfire(pos, 3.2)
 	if fire != null:
 		if state.count("raw_meat") > 0:
@@ -183,7 +204,7 @@ func use_action() -> void:
 			notified.emit("Campfire - bring raw meat to cook it")
 		return
 
-	# 3) tree: chop wood (a Stone Axe is faster)
+	# 4) tree: chop wood (a Stone Axe is faster)
 	var tree_index: int = world.nearest_tree(pos)
 	if tree_index >= 0:
 		var per_hit := 2 if state.count("stone_axe") > 0 else 1
@@ -200,7 +221,7 @@ func use_action() -> void:
 			notified.emit("Wood +%d  (%d more hits to fell)" % [per_hit, hits_left])
 		return
 
-	# 4) rock: mine stone
+	# 5) rock: mine stone
 	var rock_index: int = world.nearest_rock(pos)
 	if rock_index >= 0:
 		if not state.can_add("stone", 1):
@@ -215,7 +236,7 @@ func use_action() -> void:
 			notified.emit("Stone +1  (%d more hits)" % world.rock_hp(rock_index))
 		return
 
-	# 5) water: drink
+	# 6) water: drink
 	if world.is_near_water(pos):
 		if thirst >= 99.0:
 			notified.emit("You are not thirsty")
