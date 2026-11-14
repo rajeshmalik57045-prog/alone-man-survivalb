@@ -488,13 +488,13 @@ const AnimalScript := preload("res://scripts/animal.gd")
 
 func _build_animals(rng: RandomNumberGenerator) -> void:
 	for i in 8:
-		_spawn_animal("deer", rng)
-	for i in 10:
-		_spawn_animal("rabbit", rng)
+		_spawn_animal("deer", rng, 15.0, 75.0)
+	for i in 14:
+		_spawn_animal("rabbit", rng, 8.0, 45.0)
 
 
-func _spawn_animal(kind: String, rng: RandomNumberGenerator) -> void:
-	var p := _land_point_near_spawn(rng, 18.0, 90.0)
+func _spawn_animal(kind: String, rng: RandomNumberGenerator, min_r: float, max_r: float) -> void:
+	var p := _land_point_near_spawn(rng, min_r, max_r)
 	if not p.is_finite():
 		return
 	var a := AnimalScript.new()

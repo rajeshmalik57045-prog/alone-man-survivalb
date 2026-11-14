@@ -135,7 +135,8 @@ func _build_deer() -> void:
 
 
 func _build_rabbit() -> void:
-	var grey := Color(0.65, 0.62, 0.58)
+	var grey := Color(0.72, 0.5, 0.28)  # tan, so it stands out on green grass
+	_body.scale = Vector3(1.7, 1.7, 1.7)
 	_part(Vector3(0.3, 0.3, 0.5), Vector3(0.0, 0.25, 0.0), grey)
 	_part(Vector3(0.2, 0.2, 0.2), Vector3(0.0, 0.38, -0.3), grey)
 	_part(Vector3(0.05, 0.22, 0.05), Vector3(-0.06, 0.62, -0.3), grey)
