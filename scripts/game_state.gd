@@ -37,6 +37,10 @@ var world  # set by main.gd
 
 var items := {}  # item id -> count
 
+const SAVE_PATH := "user://alone_man_save.json"
+var autosave_enabled := true
+var _autosave_timer := 45.0
+
 var _warned := {"hunger": false, "thirst": false, "health": false}
 
 
@@ -156,11 +160,78 @@ func _place(id: String, kind: String, display_name: String) -> void:
 		message.emit("Cannot place it here (water or steep ground)")
 
 
+# ---------- saving ----------
+
+func has_save() -> bool:
+	return FileAccess.file_exists(SAVE_PATH)
+
+
+func save_game() -> bool:
+	if player == null or world == null:
+		return false
+	var p: Vector3 = player.global_position
+	var data := {
+		"version": 1,
+		"pos": [p.x, p.y, p.z],
+		"health": player.health,
+		"hunger": player.hunger,
+		"thirst": player.thirst,
+		"items": items,
+		"world": world.get_save_data(),
+	}
+	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
+	if f == null:
+		return false
+	f.store_string(JSON.stringify(data))
+	return true
+
+
+func load_game() -> bool:
+	if not has_save():
+		return false
+	var f := FileAccess.open(SAVE_PATH, FileAccess.READ)
+	if f == null:
+		return false
+	var data = JSON.parse_string(f.get_as_text())
+	if typeof(data) != TYPE_DICTIONARY:
+		return false
+	var pos: Array = data.get("pos", [0.0, 5.0, 0.0])
+	player.global_position = Vector3(float(pos[0]), float(pos[1]) + 0.3, float(pos[2]))
+	player.velocity = Vector3.ZERO
+	player.health = float(data.get("health", 100.0))
+	player.hunger = float(data.get("hunger", 100.0))
+	player.thirst = float(data.get("thirst", 100.0))
+	items.clear()
+	var saved_items: Dictionary = data.get("items", {})
+	for id in saved_items:
+		if ITEMS.has(str(id)):
+			items[str(id)] = int(saved_items[id])
+	world.apply_save_data(data.get("world", {}))
+	inventory_changed.emit()
+	return true
+
+
+func delete_save() -> void:
+	if has_save():
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(SAVE_PATH))
+
+
+func _notification(what: int) -> void:
+	# the app is minimised / closed: keep the progress
+	if autosave_enabled and (what == NOTIFICATION_APPLICATION_PAUSED or what == NOTIFICATION_WM_CLOSE_REQUEST):
+		save_game()
+
+
 # ---------- survival clock ----------
 
 func _process(delta: float) -> void:
 	if player == null:
 		return
+	_autosave_timer -= delta
+	if _autosave_timer <= 0.0:
+		_autosave_timer = 45.0
+		if autosave_enabled:
+			save_game()
 	player.hunger = maxf(0.0, player.hunger - HUNGER_DECAY * delta)
 	player.thirst = maxf(0.0, player.thirst - THIRST_DECAY * delta)
 

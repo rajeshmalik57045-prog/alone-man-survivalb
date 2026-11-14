@@ -31,6 +31,7 @@ var time_minutes := 7.0 * 60.0
 var day := 1
 var _sun: DirectionalLight3D
 var _wolf_timer := 8.0
+var _structures: Array = []  # placed campfires / shelters, for saving
 const WolfScript := preload("res://scripts/wolf.gd")
 const MAX_WOLVES := 3
 var _env: Environment
@@ -775,11 +776,51 @@ func place_structure(kind: String, pos: Vector3, yaw: float) -> bool:
 		return false
 	if kind == "campfire":
 		_make_campfire(pos)
+		_structures.append({"kind": kind, "x": pos.x, "y": pos.y, "z": pos.z, "yaw": yaw})
 		return true
 	if kind == "shelter":
 		_make_shelter(pos, yaw)
+		_structures.append({"kind": kind, "x": pos.x, "y": pos.y, "z": pos.z, "yaw": yaw})
 		return true
 	return false
+
+
+# ---------- saving ----------
+
+func get_save_data() -> Dictionary:
+	return {
+		"time": time_minutes,
+		"day": day,
+		"tree_hp": Array(_tree_hp),
+		"rock_hp": Array(_rock_hp),
+		"structures": _structures,
+	}
+
+
+func apply_save_data(d: Dictionary) -> void:
+	time_minutes = float(d.get("time", time_minutes))
+	day = int(d.get("day", day))
+	var th: Array = d.get("tree_hp", [])
+	if th.size() == _tree_hp.size():
+		for i in th.size():
+			_tree_hp[i] = int(th[i])
+			if _tree_hp[i] <= 0:
+				_tree_shapes[i].set_deferred("disabled", true)
+				_hide_instance(_tree_mms, i, _tree_points[i])
+	var rh: Array = d.get("rock_hp", [])
+	if rh.size() == _rock_hp.size():
+		for i in rh.size():
+			_rock_hp[i] = int(rh[i])
+			if _rock_hp[i] <= 0:
+				_rock_shapes[i].set_deferred("disabled", true)
+				_hide_instance(_rock_mms, i, _rock_points[i])
+	for s in d.get("structures", []):
+		var pos := Vector3(float(s["x"]), float(s["y"]), float(s["z"]))
+		if str(s["kind"]) == "campfire":
+			_make_campfire(pos)
+		else:
+			_make_shelter(pos, float(s["yaw"]))
+		_structures.append(s)
 
 
 func _make_campfire(pos: Vector3) -> void:

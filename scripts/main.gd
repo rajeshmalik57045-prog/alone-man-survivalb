@@ -70,11 +70,14 @@ func _ready() -> void:
 	player.notified.connect(_hud.show_message)
 	state.message.connect(_hud.show_message)
 
-	_hud.show_message("ALONE MAN - Phase 4: survive the night - wolves hunt after dark")
+	if state.load_game():
+		_hud.show_message("Saved game loaded")
+	else:
+		_hud.show_message("ALONE MAN - survive the night, wolves hunt after dark")
 
 
 func _on_menu_pressed(id: String) -> void:
-	if id == "inventory" or id == "crafting":
+	if id == "inventory" or id == "crafting" or id == "pause":
 		_menus.open(id)
 	else:
 		_hud.on_menu_pressed(id)

@@ -197,7 +197,12 @@ func _refresh() -> void:
 		_list.remove_child(c)
 		c.queue_free()
 
-	if _mode == "inventory":
+	if _mode == "pause":
+		_title.text = "PAUSED"
+		_add_row("Resume the game", [{"text": "RESUME", "cb": close}])
+		_add_row("Save your progress now (it also saves by itself every 45 seconds)", [{"text": "SAVE", "cb": _on_save}])
+		_add_row("Start over: deletes the saved game and begins a new one", [{"text": "NEW GAME", "cb": _on_new_game}])
+	elif _mode == "inventory":
 		_title.text = "INVENTORY     %.1f / %.0f kg" % [state.weight(), state.MAX_WEIGHT]
 		var ids: Array = state.items.keys()
 		ids.sort()
@@ -223,6 +228,20 @@ func _refresh() -> void:
 				parts.append("%d %s (have %d)" % [int(cost[cid]), state.item_name(str(cid)), state.count(str(cid))])
 			var text := "%s\n%s  -  %s" % [state.item_name(rid), ", ".join(parts), str(recipe["note"])]
 			_add_row(text, [{"text": "CRAFT", "cb": _on_craft.bind(rid), "enabled": state.can_craft(recipe)}])
+
+
+func _on_save() -> void:
+	if state.save_game():
+		_status.text = "Game saved"
+	else:
+		_status.text = "Could not save"
+
+
+func _on_new_game() -> void:
+	state.autosave_enabled = false
+	state.delete_save()
+	get_tree().paused = false
+	get_tree().reload_current_scene()
 
 
 func _on_use(id: String) -> void:
