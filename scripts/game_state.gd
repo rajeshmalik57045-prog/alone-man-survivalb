@@ -83,6 +83,9 @@ func remove(id: String, n: int) -> bool:
 
 func drop(id: String) -> void:
 	if remove(id, 1):
+		if world != null and player != null:
+			var spot: Vector3 = player.global_position + player.get_forward() * 1.4
+			world.drop_item(id, spot)
 		message.emit("Dropped %s" % item_name(id))
 
 

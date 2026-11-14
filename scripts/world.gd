@@ -485,6 +485,20 @@ func _build_pickups(rng: RandomNumberGenerator) -> void:
 			_add_pickup(p, "raw_meat", 1, Color(0.80, 0.35, 0.35))
 
 
+const DROP_COLORS := {
+	"wood": Color(0.45, 0.28, 0.12), "stone": Color(0.5, 0.5, 0.55),
+	"berries": Color(0.75, 0.10, 0.20), "raw_meat": Color(0.80, 0.35, 0.35),
+	"cooked_meat": Color(0.55, 0.30, 0.15), "stone_axe": Color(0.6, 0.6, 0.65),
+	"torch": Color(0.9, 0.55, 0.15),
+}
+
+
+## Puts one item on the ground (used by DROP). It can be picked up again with USE.
+func drop_item(item_id: String, pos: Vector3) -> void:
+	pos.y = height_at(pos.x, pos.z)
+	_add_pickup(pos, item_id, 1, DROP_COLORS.get(item_id, Color(0.8, 0.8, 0.8)))
+
+
 func _add_pickup(pos: Vector3, item_id: String, amount: int, color: Color) -> void:
 	var node := Node3D.new()
 	node.position = pos

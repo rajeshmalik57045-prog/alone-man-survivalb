@@ -60,6 +60,10 @@ var _is_placeholder := true
 var _shape: CollisionShape3D
 var _capsule: CapsuleShape3D
 var _anim: AnimationPlayer
+var _skel: Skeleton3D
+var _hand_bone := -1
+var _held: Node3D
+var _held_id := ""
 var _action_until := 0.0
 var _swing_tween: Tween
 var _debug_label: Label
@@ -305,6 +309,62 @@ func _update_animation() -> void:
 		_anim.play(full, 0.2)
 
 
+# ---------- held item (axe / torch in the right hand) ----------
+
+func _process(_delta: float) -> void:
+	if _skel == null or _hand_bone < 0 or state == null:
+		return
+	var wanted := ""
+	if state.count("stone_axe") > 0:
+		wanted = "stone_axe"
+	elif state.count("torch") > 0:
+		wanted = "torch"
+	if wanted != _held_id:
+		_held_id = wanted
+		if _held:
+			_held.queue_free()
+			_held = null
+		if wanted != "":
+			_held = _make_held(wanted)
+			add_child(_held)
+	if _held:
+		# follow the hand bone, whatever the model's own scale is
+		var bone_pose := _skel.get_bone_global_pose(_hand_bone)
+		var gt := _skel.global_transform
+		_held.global_transform = Transform3D(
+			gt.basis.orthonormalized() * bone_pose.basis.orthonormalized(),
+			gt * bone_pose.origin
+		)
+
+
+func _box(size: Vector3, pos: Vector3, color: Color, glow := false) -> MeshInstance3D:
+	var m := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = size
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = color
+	if glow:
+		mat.emission_enabled = true
+		mat.emission = color
+	bm.material = mat
+	m.mesh = bm
+	m.position = pos
+	return m
+
+
+## Built in metres, with its length along the hand bone's Y axis (the direction of the fingers).
+func _make_held(id: String) -> Node3D:
+	var n := Node3D.new()
+	n.name = "Held"
+	if id == "stone_axe":
+		n.add_child(_box(Vector3(0.05, 0.6, 0.05), Vector3(0.0, 0.15, 0.0), Color(0.45, 0.28, 0.12)))
+		n.add_child(_box(Vector3(0.05, 0.16, 0.26), Vector3(0.0, 0.42, 0.1), Color(0.55, 0.55, 0.6)))
+	else:
+		n.add_child(_box(Vector3(0.05, 0.45, 0.05), Vector3(0.0, 0.12, 0.0), Color(0.4, 0.25, 0.1)))
+		n.add_child(_box(Vector3(0.09, 0.12, 0.09), Vector3(0.0, 0.40, 0.0), Color(1.0, 0.55, 0.1), true))
+	return n
+
+
 # ---------- visuals ----------
 
 func _build_visual() -> Node3D:
@@ -382,6 +442,11 @@ func _setup_animations() -> void:
 		var skel := _find_skeleton(anim_root)
 		if skel:
 			skel_path = str(anim_root.get_path_to(skel))
+			_skel = skel
+			for hb in skel.get_bone_count():
+				if _norm(skel.get_bone_name(hb)).ends_with("righthand"):
+					_hand_bone = hb
+					break
 			for i in skel.get_bone_count():
 				bone_map[_norm(skel.get_bone_name(i))] = skel.get_bone_name(i)
 	report.append("skeleton: %s, %d bones" % [skel_path if skel_path != "" else "NOT FOUND", bone_map.size()])
