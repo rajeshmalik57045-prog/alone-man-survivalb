@@ -20,6 +20,7 @@ func _ready() -> void:
 	layer = 5
 	_build_status_bars()
 	_build_clock()
+	_build_version()
 	_build_message()
 	_build_hotbar()
 	_ignore_mouse(self)
@@ -127,6 +128,26 @@ func _add_bar(parent: Control, key: String, title: String, color: Color) -> void
 	row.add_child(bar)
 
 	_bars[key] = bar
+
+
+const BUILD := "5c"
+
+
+## A tiny build number in the corner, so you can see which APK is installed.
+func _build_version() -> void:
+	var v := Label.new()
+	v.text = "build " + BUILD
+	v.add_theme_font_size_override("font_size", 14)
+	v.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 1.0))
+	v.add_theme_constant_override("outline_size", 4)
+	v.modulate = Color(1.0, 1.0, 1.0, 0.7)
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(v)
+	v.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT, Control.PRESET_MODE_MINSIZE)
+	v.offset_left += 10.0
+	v.offset_right += 10.0
+	v.offset_top -= 8.0
+	v.offset_bottom -= 8.0
 
 
 func _build_clock() -> void:
