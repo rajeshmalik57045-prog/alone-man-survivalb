@@ -12,6 +12,7 @@ var _msg_label: Label
 var _fps_label: Label
 var _msg_tween: Tween
 var _clock_minutes := 6.0 * 60.0
+var world  # set by main.gd; the world owns the game clock
 var _day := 1
 
 
@@ -44,10 +45,14 @@ func on_menu_pressed(id: String) -> void:
 
 
 func _process(delta: float) -> void:
-	_clock_minutes += delta * 2.0
-	if _clock_minutes >= 1440.0:
-		_clock_minutes -= 1440.0
-		_day += 1
+	if world:
+		_clock_minutes = world.time_minutes
+		_day = world.day
+	else:
+		_clock_minutes += delta * 2.0
+		if _clock_minutes >= 1440.0:
+			_clock_minutes -= 1440.0
+			_day += 1
 
 	var heading := ""
 	if _rig:

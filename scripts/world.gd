@@ -26,6 +26,13 @@ const ROCK_MODELS := [
 const TREE_MODEL_SCALE := 1.0
 const ROCK_MODEL_SCALE := 1.0
 
+## Game clock: 2 game minutes per real second (one full day = 12 real minutes).
+var time_minutes := 7.0 * 60.0
+var day := 1
+var _sun: DirectionalLight3D
+var _env: Environment
+var _sky_mat: ProceduralSkyMaterial
+
 var _noise := FastNoiseLite.new()
 var _detail := FastNoiseLite.new()
 var _forest := FastNoiseLite.new()
@@ -105,6 +112,7 @@ func _build_environment() -> void:
 	sky_mat.ground_bottom_color = Color(0.25, 0.30, 0.25)
 	var sky := Sky.new()
 	sky.sky_material = sky_mat
+	_sky_mat = sky_mat
 
 	var env := Environment.new()
 	env.background_mode = Environment.BG_SKY
@@ -116,6 +124,7 @@ func _build_environment() -> void:
 	env.fog_light_color = Color(0.70, 0.78, 0.86)
 	env.fog_density = 0.004
 
+	_env = env
 	var world_env := WorldEnvironment.new()
 	world_env.environment = env
 	add_child(world_env)
@@ -127,6 +136,38 @@ func _build_environment() -> void:
 	sun.shadow_enabled = true
 	sun.directional_shadow_max_distance = 70.0
 	add_child(sun)
+	_sun = sun
+
+
+## Day / night: moves the sun, changes the sky, fog and ambient light.
+func _process(delta: float) -> void:
+	time_minutes += delta * 2.0
+	if time_minutes >= 1440.0:
+		time_minutes -= 1440.0
+		day += 1
+	if _sun == null:
+		return
+	var t := time_minutes / 1440.0
+	var elev := sin((t - 0.25) * TAU)  # -1 midnight .. +1 noon, 0 at 06:00 and 18:00
+	var day_f := clampf(elev * 3.0, 0.0, 1.0)
+	var glow := clampf(1.0 - absf(elev) * 4.0, 0.0, 1.0)  # sunrise / sunset warmth
+
+	_sun.rotation_degrees = Vector3(-elev * 70.0 - 8.0, -35.0 + t * 120.0, 0.0)
+	_sun.light_energy = 0.9 * day_f
+	_sun.shadow_enabled = day_f > 0.05
+	_sun.light_color = Color(1.0, 0.96, 0.88).lerp(Color(1.0, 0.62, 0.35), glow)
+
+	var top := Color(0.02, 0.03, 0.09).lerp(Color(0.25, 0.47, 0.78), day_f)
+	var horizon := Color(0.05, 0.07, 0.15).lerp(Color(0.68, 0.80, 0.90), day_f)
+	horizon = horizon.lerp(Color(0.95, 0.55, 0.30), glow * 0.7)
+	_sky_mat.sky_top_color = top
+	_sky_mat.sky_horizon_color = horizon
+	_sky_mat.ground_horizon_color = horizon
+	_sky_mat.ground_bottom_color = Color(0.02, 0.03, 0.04).lerp(Color(0.25, 0.30, 0.25), day_f)
+	_env.fog_light_color = horizon
+	_env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	_env.ambient_light_color = Color(0.14, 0.17, 0.30).lerp(Color(0.80, 0.88, 1.0), day_f)
+	_env.ambient_light_energy = lerpf(0.55, 0.6, day_f)
 
 
 # ---------- terrain ----------

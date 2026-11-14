@@ -37,6 +37,7 @@ func _ready() -> void:
 	_hud.name = "Hud"
 	add_child(_hud)
 	_hud.bind(player, rig)
+	_hud.world = world
 
 	var controls_layer := CanvasLayer.new()
 	controls_layer.name = "ControlsLayer"
@@ -69,7 +70,7 @@ func _ready() -> void:
 	player.notified.connect(_hud.show_message)
 	state.message.connect(_hud.show_message)
 
-	_hud.show_message("ALONE MAN - Phase 4: hunt, cook, survive")
+	_hud.show_message("ALONE MAN - Phase 4: day and night - keep a torch")
 
 
 func _on_menu_pressed(id: String) -> void:

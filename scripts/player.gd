@@ -336,10 +336,11 @@ func _process(_delta: float) -> void:
 	if _skel == null or _hand_bone < 0 or state == null:
 		return
 	var wanted := ""
-	if state.count("stone_axe") > 0:
+	var is_night: bool = world != null and (world.time_minutes > 18.5 * 60.0 or world.time_minutes < 5.5 * 60.0)
+	if state.count("torch") > 0 and (is_night or state.count("stone_axe") == 0):
+		wanted = "torch"  # at night the torch is held, so it lights the way
+	elif state.count("stone_axe") > 0:
 		wanted = "stone_axe"
-	elif state.count("torch") > 0:
-		wanted = "torch"
 	if wanted != _held_id:
 		_held_id = wanted
 		if _held:
@@ -383,6 +384,12 @@ func _make_held(id: String) -> Node3D:
 	else:
 		n.add_child(_box(Vector3(0.05, 0.45, 0.05), Vector3(0.0, 0.12, 0.0), Color(0.4, 0.25, 0.1)))
 		n.add_child(_box(Vector3(0.09, 0.12, 0.09), Vector3(0.0, 0.40, 0.0), Color(1.0, 0.55, 0.1), true))
+		var light := OmniLight3D.new()
+		light.light_color = Color(1.0, 0.65, 0.3)
+		light.light_energy = 1.6
+		light.omni_range = 9.0
+		light.position = Vector3(0.0, 0.5, 0.0)
+		n.add_child(light)
 	return n
 
 
